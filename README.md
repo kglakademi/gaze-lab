@@ -6,6 +6,6 @@ Open https://kglakademi.github.io/gaze-lab/ in Chrome or Edge on a computer with
 
 The camera video and the gaze data never leave the participant's computer. Everything runs in the browser.
 
-The page section "Analyse saved recordings" pools gaze tables from several participants into combined heatmaps and scanpaths.
+After a session, or under "Analyse saved recordings" for several participants at once, you can draw rectangular areas of interest on each stimulus. The analysis then adds the area to every fixation and produces an area summary with fixation count, dwell time, share of dwell time, time to first fixation and number of visits per participant. Areas can be saved as an AOI file and loaded again, so a group can share the same areas.
 
 Gaze estimation uses WebGazer.js 3.5.3 by the Brown WebGazer Team (Papoutsaki et al., 2016), included here under the GPLv3 licence, see WEBGAZER-LICENSE.md. Webcam eye tracking typically has an accuracy of several degrees of visual angle, so results support statements about larger regions of an image, not small details.
