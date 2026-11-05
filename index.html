@@ -1,0 +1,893 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Gaze lab</title>
+<style>
+  :root {
+    --bg: #e8ecef; --ink: #16202a; --muted: #55616d; --line: #c2ccd4;
+    --accent: #0b6e6e; --on-accent: #ffffff; --bad: #b3261e; --good: #1b7a3d;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #10161c; --ink: #e6ebef; --muted: #93a1ae; --line: #2a3541;
+      --accent: #3cc4c4; --on-accent: #08161a; --bad: #ff8a80; --good: #6fd08c;
+    }
+  }
+  [hidden] { display: none !important; }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body { background: var(--bg); color: var(--ink); font: 16px/1.55 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  section { min-height: 100%; max-width: 640px; margin: 0 auto; padding: 48px 24px; }
+  h1 { font-size: 28px; line-height: 1.2; font-weight: 650; letter-spacing: -0.01em; margin: 0 0 12px; }
+  h2 { font-size: 19px; font-weight: 650; margin: 32px 0 8px; }
+  p { margin: 0 0 16px; max-width: 60ch; }
+  .muted { color: var(--muted); }
+  label { display: block; margin: 0 0 16px; font-weight: 550; }
+  label small { display: block; font-weight: 400; color: var(--muted); }
+  input[type=number], input[type=text] {
+    display: block; width: 14em; margin-top: 4px; padding: 8px 10px; font: inherit;
+    color: inherit; background: transparent; border: 1px solid var(--line); border-radius: 6px;
+  }
+  input[type=file] { display: block; margin-top: 6px; font: inherit; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(14em, 1fr)); gap: 0 16px; }
+  .grid input { width: 100%; }
+  button {
+    font: inherit; font-weight: 600; padding: 10px 18px; border-radius: 6px; cursor: pointer;
+    border: 1px solid var(--accent); background: var(--accent); color: var(--on-accent);
+  }
+  button.secondary { background: transparent; color: var(--ink); border-color: var(--line); }
+  button:disabled { opacity: 0.45; cursor: default; }
+  button:focus-visible, input:focus-visible, a:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+  a { color: var(--accent); }
+  .row { display: flex; flex-wrap: wrap; gap: 10px; margin: 20px 0; }
+  .err { color: var(--bad); min-height: 1.5em; }
+  hr { border: 0; border-top: 1px solid var(--line); margin: 40px 0 0; }
+  table { border-collapse: collapse; margin: 16px 0 24px; width: 100%; font-variant-numeric: tabular-nums; }
+  th, td { text-align: right; padding: 6px 10px; border-bottom: 1px solid var(--line); }
+  th:first-child, td:first-child { text-align: left; }
+  .pass { color: var(--good); font-weight: 600; }
+  .fail { color: var(--bad); font-weight: 600; }
+  .links li { margin: 6px 0; }
+
+  #stage { position: fixed; inset: 0; z-index: 1000; background: var(--bg); }
+  #hud { position: fixed; top: 12px; left: 0; right: 0; text-align: center; color: var(--muted); margin: 0 auto; }
+  .dot {
+    position: fixed; width: 44px; height: 44px; margin: -22px 0 0 -22px; padding: 0;
+    border-radius: 50%; border: 2px solid var(--accent); background: transparent; cursor: pointer;
+  }
+  .dot::after {
+    content: ""; position: absolute; left: 50%; top: 50%; width: 6px; height: 6px;
+    margin: -3px 0 0 -3px; border-radius: 50%; background: var(--ink);
+  }
+  .probe { cursor: default; }
+
+  #show { position: fixed; inset: 0; z-index: 1000; background: #000; cursor: none; }
+  #cross { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); color: #fff; font-size: 48px; line-height: 1; }
+  #show img, #show video { position: absolute; display: block; }
+
+  #webgazerVideoContainer {
+    top: auto !important; left: auto !important; right: 16px !important; bottom: 16px !important;
+    transform: scale(0.6); transform-origin: bottom right; pointer-events: none; z-index: 1200 !important;
+  }
+</style>
+</head>
+<body>
+
+<section id="setup">
+  <h1>Gaze lab</h1>
+  <p>This page tracks your gaze with the webcam while you look at images and videos. The camera video and your gaze data stay on this computer and are never uploaded. At the end you download a gaze table, overlay videos, heatmaps and scanpaths.</p>
+  <p class="muted">Use Chrome or Edge on a laptop or desktop with a webcam.</p>
+  <form id="setupForm" onsubmit="return false">
+    <label>Participant ID
+      <small>Letters, digits, hyphen and underscore only.</small>
+      <input id="pid" type="text" required pattern="[A-Za-z0-9_\-]+">
+    </label>
+    <label>Viewing distance in cm
+      <small>Distance from your eyes to the screen.</small>
+      <input id="dist" type="number" min="10" step="any" required>
+    </label>
+    <label>Visible screen width in cm
+      <small>Measure the lit area of the display from edge to edge with a ruler.</small>
+      <input id="width" type="number" min="5" step="any" required>
+    </label>
+    <label>Largest acceptable mean offset in degrees
+      <small>Validation counts as passed when the mean error is at or below this value.</small>
+      <input id="limit" type="number" min="0.1" step="any" value="4" required>
+    </label>
+    <label>Seconds per image
+      <small>Videos play to the end.</small>
+      <input id="imgdur" type="number" min="1" step="any" value="5" required>
+    </label>
+    <label>Images and videos
+      <small>They are shown in the order you select them. Press S during viewing to skip one.</small>
+      <input id="files" type="file" accept="image/*,video/*" multiple required>
+    </label>
+    <div class="row"><button id="startCam" type="button">Start camera</button></div>
+    <p id="camError" class="err" role="alert"></p>
+  </form>
+  <hr>
+  <h2>Combine several recordings</h2>
+  <p class="muted">Make pooled heatmaps and scanpaths from gaze tables that you or others recorded earlier.</p>
+  <div class="row"><button id="openAnalyse" class="secondary" type="button">Analyse saved recordings</button></div>
+</section>
+
+<section id="camera" hidden>
+  <h1>Check your position</h1>
+  <p>Sit at the distance you entered. Keep your whole face inside the preview at the bottom right. Use even light on your face and avoid a bright window behind you.</p>
+  <p class="muted">Calibration will switch to full screen. Keep your head still from here on.</p>
+  <div class="row"><button id="beginCal" type="button">Begin calibration</button></div>
+</section>
+
+<div id="stage" hidden>
+  <p id="hud"></p>
+  <button id="target" class="dot" type="button" hidden aria-label="Calibration target"></button>
+  <div id="probe" class="dot probe" hidden></div>
+</div>
+
+<section id="result" hidden>
+  <h1>Validation</h1>
+  <p id="verdict"></p>
+  <table id="vtable"></table>
+  <div class="row">
+    <button id="recal" class="secondary" type="button">Recalibrate</button>
+    <button id="startView" type="button">Start viewing</button>
+  </div>
+</section>
+
+<div id="show" hidden>
+  <div id="cross" hidden>+</div>
+  <img id="img" alt="" hidden>
+  <video id="vid" playsinline hidden></video>
+</div>
+
+<section id="done" hidden>
+  <h1>Finished</h1>
+  <p id="summary"></p>
+  <ul id="links" class="links"></ul>
+  <p id="doneStatus" class="muted" role="status"></p>
+  <p class="muted">Download every file before closing this page. The files exist only in this browser tab.</p>
+  <div class="row"><button id="newSession" class="secondary" type="button">Start a new session</button></div>
+</section>
+
+<section id="analyse" hidden>
+  <h1>Analyse saved recordings</h1>
+  <p>Select the gaze tables, which end in <code>_gaze.csv</code>, and the original images and videos. Files are matched to stimuli by file name. Heatmaps pool all participants, and each participant gets a scanpath per stimulus.</p>
+  <form id="anForm" onsubmit="return false">
+    <label>Gaze tables
+      <input id="anCsv" type="file" accept=".csv,text/csv" multiple required>
+    </label>
+    <label>Images and videos
+      <small>Without them the plots are drawn on a grey background.</small>
+      <input id="anMedia" type="file" accept="image/*,video/*" multiple>
+    </label>
+    <div class="grid">
+      <label>Fixation dispersion in degrees<input id="anDisp" type="number" min="0.1" step="any" value="2.5" required></label>
+      <label>Minimum fixation in ms<input id="anMin" type="number" min="10" step="any" value="100" required></label>
+      <label>Largest sample gap in ms<input id="anGap" type="number" min="10" step="any" value="150" required></label>
+      <label>Heatmap smoothing in degrees<input id="anSigma" type="number" min="0.1" step="any" value="1.5" required></label>
+      <label>Video window start in s<small>Leave empty for the whole video.</small><input id="anStart" type="number" min="0" step="any"></label>
+      <label>Video window end in s<small>Leave empty for the whole video.</small><input id="anEnd" type="number" min="0" step="any"></label>
+      <label>Video background frame in s<small>Leave empty for the middle of the window.</small><input id="anFrame" type="number" min="0" step="any"></label>
+    </div>
+    <div class="row">
+      <button id="anBack" class="secondary" type="button">Back</button>
+      <button id="anRun" type="button">Make heatmaps and scanpaths</button>
+    </div>
+  </form>
+  <p id="anStatus" class="muted" role="status"></p>
+  <ul id="anLinks" class="links"></ul>
+</section>
+
+<script src="webgazer.js"></script>
+<script>
+(() => {
+  const $ = id => document.getElementById(id);
+  const sleep = ms => new Promise(r => setTimeout(r, ms));
+  const shuffle = a => {
+    a = a.slice();
+    for (let i = a.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [a[i], a[j]] = [a[j], a[i]];
+    }
+    return a;
+  };
+
+  // Recording settings
+  const CAL = [[.1,.1],[.5,.1],[.9,.1],[.1,.5],[.5,.5],[.9,.5],[.1,.9],[.5,.9],[.9,.9]];
+  const VAL = [[.25,.25],[.75,.25],[.5,.5],[.25,.75],[.75,.75]];
+  const CLICKS_PER_POINT = 5;
+  const VAL_SETTLE_MS = 900;
+  const VAL_SAMPLE_MS = 1600;
+  const MAX_VIDEO_WIDTH = 1280;
+  const TRAIL_MS = 600;
+  // Analysis defaults used at the end of a session
+  const DEFAULT_ANALYSIS = { dispDeg: 2.5, minDur: 100, maxGap: 150, sigmaDeg: 1.5, start: null, end: null, frameTime: null };
+  const MAX_PLOT_WIDTH = 1600;
+  const HEAT_GRID_WIDTH = 400;
+
+  const COLS = ['participant','stimulus_index','stimulus','stimulus_type','t_ms','media_time_s',
+                'x_screen','y_screen','x_stim','y_stim','on_stimulus','stim_w','stim_h','stim_px_per_deg'];
+  const FIX_COLS = ['participant','stimulus','fixation','start_ms','end_ms','duration_ms','media_start_s',
+                    'x_stim','y_stim','n_samples'];
+
+  let latest = null, collecting = null, current = null, skipNow = null;
+  let listenersOn = true, preVal = null, postVal = null, pid = '';
+  const rows = [], outputs = [], errors = [];
+
+  const sections = ['setup', 'camera', 'stage', 'result', 'show', 'done', 'analyse'];
+  function show(id) { for (const s of sections) $(s).hidden = s !== id; }
+  function place(el, fx, fy) {
+    el.style.left = fx * window.innerWidth + 'px';
+    el.style.top = fy * window.innerHeight + 'px';
+  }
+  function geometry() {
+    const dist = parseFloat($('dist').value);
+    const width = parseFloat($('width').value);
+    const limit = parseFloat($('limit').value);
+    const pxPerCm = window.screen.width / width;
+    const pxPerDeg = pxPerCm * 2 * dist * Math.tan(Math.PI / 360);
+    const toDeg = px => Math.atan((px / pxPerCm) / dist) * 180 / Math.PI;
+    return { dist, width, limit, pxPerCm, pxPerDeg, toDeg };
+  }
+  function setListeners(on) {
+    if (on === listenersOn) return;
+    if (on) webgazer.addMouseEventListeners(); else webgazer.removeMouseEventListeners();
+    listenersOn = on;
+  }
+  async function enterFullscreen() {
+    try { await Promise.resolve(document.documentElement.requestFullscreen && document.documentElement.requestFullscreen()); }
+    catch (e) { /* fullscreen is optional */ }
+    await sleep(400);
+  }
+  const safe = s => String(s).replace(/[^\w.\-]+/g, '_');
+  const stem = name => safe(String(name).replace(/\.[^.]+$/, ''));
+  const csvCell = v => { v = String(v); return /[",\n\r]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; };
+  const csvBlob = (objs, cols) => {
+    const lines = [cols.join(',')];
+    for (const r of objs) lines.push(cols.map(c => csvCell(r[c])).join(','));
+    return new Blob([lines.join('\n')], { type: 'text/csv' });
+  };
+  function addLink(listId, name, blob) {
+    const li = document.createElement('li');
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = name;
+    a.textContent = name;
+    li.append(a);
+    $(listId).append(li);
+  }
+
+  /* ---------- Recording ---------- */
+
+  function onGaze(d, elapsed) {
+    if (!d) return;
+    latest = { x: d.x, y: d.y, t: elapsed };
+    if (collecting) collecting.push(latest);
+    if (current) current.onSample(d.x, d.y);
+  }
+
+  async function startCamera() {
+    if (!$('setupForm').reportValidity()) return;
+    pid = $('pid').value.trim();
+    $('camError').textContent = '';
+    if (typeof webgazer === 'undefined') {
+      $('camError').textContent = 'The eye tracking library did not load. Reload the page and try again.';
+      return;
+    }
+    $('startCam').disabled = true;
+    try {
+      let failed = false;
+      webgazer.params.faceMeshSolutionPath = './mediapipe/face_mesh';
+      webgazer.saveDataAcrossSessions(false);
+      webgazer.setRegression('ridge');
+      webgazer.setGazeListener(onGaze);
+      await webgazer.begin(() => { failed = true; });
+      if (failed) throw new Error('Camera access was blocked. Allow the camera for this page in the address bar and try again.');
+      webgazer.showVideoPreview(true);
+      webgazer.showPredictionPoints(false);
+      webgazer.showFaceOverlay(false);
+      webgazer.showFaceFeedbackBox(true);
+      show('camera');
+    } catch (e) {
+      $('camError').textContent = e && e.message ? e.message : 'The camera could not be started.';
+    }
+    $('startCam').disabled = false;
+  }
+
+  function clickTarget(fx, fy, n) {
+    return new Promise(resolve => {
+      const b = $('target');
+      place(b, fx, fy);
+      b.style.boxShadow = 'none';
+      b.hidden = false;
+      let k = 0;
+      b.onclick = () => {
+        k++;
+        b.style.boxShadow = 'inset 0 0 0 ' + (k * 22 / n) + 'px var(--accent)';
+        if (k >= n) {
+          b.onclick = null;
+          setTimeout(() => { b.hidden = true; resolve(); }, 200);
+        }
+      };
+    });
+  }
+
+  function summarise(tx, ty, s) {
+    const n = s.length;
+    if (n < 5) return { tx, ty, n, offsetPx: NaN, precisionPx: NaN };
+    let sum = 0;
+    for (const p of s) sum += Math.hypot(p.x - tx, p.y - ty);
+    let ss = 0;
+    for (let i = 1; i < n; i++) ss += (s[i].x - s[i - 1].x) ** 2 + (s[i].y - s[i - 1].y) ** 2;
+    return { tx, ty, n, offsetPx: sum / n, precisionPx: Math.sqrt(ss / (n - 1)) };
+  }
+
+  async function runValidation(message) {
+    setListeners(false);
+    show('stage');
+    $('target').hidden = true;
+    $('hud').textContent = message;
+    await sleep(800);
+    const points = [];
+    for (const [fx, fy] of shuffle(VAL)) {
+      const probe = $('probe');
+      place(probe, fx, fy);
+      probe.hidden = false;
+      await sleep(VAL_SETTLE_MS);
+      collecting = [];
+      await sleep(VAL_SAMPLE_MS);
+      const s = collecting;
+      collecting = null;
+      probe.hidden = true;
+      points.push(summarise(fx * window.innerWidth, fy * window.innerHeight, s));
+      await sleep(200);
+    }
+    const g = geometry();
+    for (const r of points) {
+      r.offsetDeg = g.toDeg(r.offsetPx);
+      r.precisionDeg = g.toDeg(r.precisionPx);
+    }
+    const valid = points.filter(r => Number.isFinite(r.offsetPx));
+    const mean = valid.length ? valid.reduce((a, r) => a + r.offsetDeg, 0) / valid.length : NaN;
+    const complete = valid.length === points.length;
+    return {
+      time: new Date().toISOString(),
+      mean_offset_deg: Number.isFinite(mean) ? +mean.toFixed(3) : null,
+      complete, passed: complete && mean <= g.limit, points
+    };
+  }
+
+  function renderResult(v) {
+    const g = geometry();
+    const verdict = $('verdict');
+    verdict.textContent = '';
+    const tag = document.createElement('span');
+    tag.className = v.passed ? 'pass' : 'fail';
+    tag.textContent = v.passed ? 'Passed. ' : 'Not passed. ';
+    verdict.append(tag, v.complete
+      ? 'Mean offset was ' + v.mean_offset_deg.toFixed(2) + ' degrees across ' + v.points.length + ' points, and the limit is ' + g.limit + ' degrees.'
+      : 'At least one point had too few gaze samples. Check that your face is fully visible to the camera.');
+    const t = $('vtable');
+    t.textContent = '';
+    const head = t.insertRow();
+    for (const h of ['Target (px)', 'Samples', 'Offset (deg)', 'Precision (deg)']) {
+      const th = document.createElement('th'); th.textContent = h; head.append(th);
+    }
+    for (const r of v.points) {
+      const tr = t.insertRow();
+      const cells = [
+        Math.round(r.tx) + ', ' + Math.round(r.ty), r.n,
+        Number.isFinite(r.offsetDeg) ? r.offsetDeg.toFixed(2) : 'none',
+        Number.isFinite(r.precisionDeg) ? r.precisionDeg.toFixed(2) : 'none'
+      ];
+      for (const c of cells) tr.insertCell().textContent = c;
+    }
+  }
+
+  async function calibrate() {
+    setListeners(true);
+    await webgazer.clearData();
+    await enterFullscreen();
+    webgazer.showVideoPreview(false);
+    show('stage');
+    $('probe').hidden = true;
+    $('hud').textContent = 'Look at each circle and click it ' + CLICKS_PER_POINT + ' times. Keep your head still.';
+    for (const [fx, fy] of shuffle(CAL)) await clickTarget(fx, fy, CLICKS_PER_POINT);
+    preVal = await runValidation('Look at each circle without moving your head. Do not click.');
+    renderResult(preVal);
+    show('result');
+  }
+
+  function pickMime() {
+    if (!window.MediaRecorder) return null;
+    for (const m of ['video/mp4;codecs=avc1', 'video/mp4', 'video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm']) {
+      if (MediaRecorder.isTypeSupported(m)) return m;
+    }
+    return '';
+  }
+
+  async function runStimulus(file, idx) {
+    const isVideo = file.type.startsWith('video/');
+    const el = isVideo ? $('vid') : $('img');
+    $('img').hidden = true;
+    $('vid').hidden = true;
+    show('show');
+    const url = URL.createObjectURL(file);
+    try {
+      if (isVideo) {
+        await new Promise((res, rej) => {
+          el.onloadedmetadata = res;
+          el.onerror = () => rej(new Error('could not be loaded as a video'));
+          el.src = url;
+        });
+      } else {
+        el.src = url;
+        await el.decode();
+      }
+      const nw = isVideo ? el.videoWidth : el.naturalWidth;
+      const nh = isVideo ? el.videoHeight : el.naturalHeight;
+
+      $('cross').hidden = false;
+      await sleep(1000);
+      $('cross').hidden = true;
+
+      const scale = Math.min(window.innerWidth / nw, window.innerHeight / nh);
+      const w = nw * scale, h = nh * scale;
+      const left = (window.innerWidth - w) / 2, top = (window.innerHeight - h) / 2;
+      Object.assign(el.style, { width: w + 'px', height: h + 'px', left: left + 'px', top: top + 'px' });
+
+      const cs = Math.min(1, MAX_VIDEO_WIDTH / nw);
+      const cw = Math.max(2, Math.round(nw * cs / 2) * 2), ch = Math.max(2, Math.round(nh * cs / 2) * 2);
+      const canvas = document.createElement('canvas');
+      canvas.width = cw; canvas.height = ch;
+      const ctx = canvas.getContext('2d');
+      const mime = pickMime();
+      let rec = null;
+      const chunks = [];
+      if (mime !== null && canvas.captureStream) {
+        rec = new MediaRecorder(canvas.captureStream(30), mime ? { mimeType: mime, videoBitsPerSecond: 6e6 } : {});
+        rec.ondataavailable = e => { if (e.data && e.data.size) chunks.push(e.data); };
+      }
+
+      const g = geometry();
+      const stimPxPerDeg = g.pxPerDeg / scale;
+      const trail = [];
+      const t0 = performance.now();
+      current = {
+        onSample(x, y) {
+          const t = performance.now() - t0;
+          const xs = (x - left) / scale, ys = (y - top) / scale;
+          const on = xs >= 0 && xs <= nw && ys >= 0 && ys <= nh ? 1 : 0;
+          const mt = isVideo ? el.currentTime : t / 1000;
+          rows.push({
+            participant: pid, stimulus_index: idx + 1, stimulus: file.name,
+            stimulus_type: isVideo ? 'video' : 'image',
+            t_ms: Math.round(t), media_time_s: +mt.toFixed(3),
+            x_screen: Math.round(x), y_screen: Math.round(y),
+            x_stim: +xs.toFixed(1), y_stim: +ys.toFixed(1), on_stimulus: on,
+            stim_w: nw, stim_h: nh, stim_px_per_deg: +stimPxPerDeg.toFixed(3)
+          });
+          trail.push({ t, x: xs * cs, y: ys * cs });
+        }
+      };
+
+      let running = true;
+      const draw = () => {
+        if (!running) return;
+        ctx.drawImage(el, 0, 0, cw, ch);
+        const now = performance.now() - t0;
+        while (trail.length && now - trail[0].t > TRAIL_MS) trail.shift();
+        if (trail.length) {
+          ctx.lineWidth = Math.max(2, cw / 400);
+          ctx.strokeStyle = 'rgba(255, 220, 0, 0.7)';
+          ctx.beginPath();
+          trail.forEach((p, i) => (i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y)));
+          ctx.stroke();
+          const p = trail[trail.length - 1];
+          ctx.fillStyle = 'rgba(255, 40, 40, 0.7)';
+          ctx.beginPath();
+          ctx.arc(p.x, p.y, Math.max(8, cw / 80), 0, 2 * Math.PI);
+          ctx.fill();
+        }
+        requestAnimationFrame(draw);
+      };
+
+      el.hidden = false;
+      const skipped = new Promise(r => { skipNow = r; });
+      let finished;
+      if (isVideo) {
+        finished = new Promise(r => { el.onended = r; });
+        el.currentTime = 0;
+        if (rec) rec.start(1000);
+        draw();
+        try { await el.play(); }
+        catch (e) { el.muted = true; await el.play(); }
+      } else {
+        finished = sleep(parseFloat($('imgdur').value) * 1000);
+        if (rec) rec.start(1000);
+        draw();
+      }
+      await Promise.race([finished, skipped]);
+      skipNow = null;
+
+      running = false;
+      current = null;
+      if (isVideo) el.pause();
+      if (rec && rec.state !== 'inactive') {
+        const stopped = new Promise(r => { rec.onstop = r; });
+        rec.stop();
+        await stopped;
+        const type = rec.mimeType || mime || 'video/webm';
+        const ext = type.includes('mp4') ? 'mp4' : 'webm';
+        outputs.push({
+          name: pid + '_' + String(idx + 1).padStart(2, '0') + '_' + stem(file.name) + '_gaze.' + ext,
+          blob: new Blob(chunks, { type })
+        });
+      }
+    } finally {
+      current = null;
+      skipNow = null;
+      el.hidden = true;
+      el.removeAttribute('src');
+      if (isVideo) el.load();
+      URL.revokeObjectURL(url);
+    }
+  }
+
+  async function startViewing() {
+    webgazer.showVideoPreview(false);
+    webgazer.showFaceFeedbackBox(false);
+    const files = Array.from($('files').files);
+    for (let i = 0; i < files.length; i++) {
+      try { await runStimulus(files[i], i); }
+      catch (e) { errors.push(files[i].name + ' ' + (e && e.message ? e.message : 'failed')); }
+    }
+    postVal = await runValidation('Final check. Look at each circle without moving your head. Do not click.');
+    await finish(files);
+  }
+
+  async function finish(files) {
+    try { webgazer.end(); } catch (e) { /* already stopped */ }
+    try { if (document.fullscreenElement) await document.exitFullscreen(); } catch (e) { /* ignore */ }
+    const g = geometry();
+    const meta = {
+      participant: pid, user_agent: navigator.userAgent,
+      screen_px: [window.screen.width, window.screen.height],
+      viewport_px: [window.innerWidth, window.innerHeight],
+      viewing_distance_cm: g.dist, screen_width_cm: g.width,
+      screen_px_per_deg: +g.pxPerDeg.toFixed(3), validation_limit_deg: g.limit,
+      validation_before: preVal, validation_after: postVal, errors
+    };
+    addLink('links', pid + '_gaze.csv', csvBlob(rows, COLS));
+    addLink('links', pid + '_session.json', new Blob([JSON.stringify(meta, null, 2)], { type: 'application/json' }));
+    for (const o of outputs) addLink('links', o.name, o.blob);
+
+    const fmt = v => v && v.mean_offset_deg !== null ? v.mean_offset_deg.toFixed(2) + ' degrees' : 'not available';
+    let text = 'Mean validation offset was ' + fmt(preVal) + ' before viewing and ' + fmt(postVal) + ' after viewing.';
+    if (errors.length) text += ' Some stimuli could not be shown. ' + errors.join('. ') + '.';
+    $('summary').textContent = text;
+    show('done');
+
+    $('doneStatus').textContent = 'Making heatmaps and scanpaths…';
+    try {
+      const media = new Map(files.map(f => [f.name, f]));
+      const res = await analyse(rows.map(normalise), media, DEFAULT_ANALYSIS, pid + '_');
+      for (const o of res.outs) addLink('links', o.name, o.blob);
+      $('doneStatus').textContent = res.notes.join(' ');
+    } catch (e) {
+      $('doneStatus').textContent = 'Heatmaps and scanpaths could not be made. The gaze table above is complete and can be analysed later.';
+    }
+  }
+
+  /* ---------- Analysis ---------- */
+
+  function normalise(r) {
+    return {
+      participant: String(r.participant), stimulus: String(r.stimulus), type: String(r.stimulus_type),
+      t: +r.t_ms, mt: +r.media_time_s, x: +r.x_stim, y: +r.y_stim, on: +r.on_stimulus === 1,
+      w: +r.stim_w, h: +r.stim_h, ppd: +r.stim_px_per_deg
+    };
+  }
+
+  function parseCSV(text) {
+    const out = [];
+    let row = [], field = '', q = false;
+    for (let i = 0; i < text.length; i++) {
+      const c = text[i];
+      if (q) {
+        if (c === '"') { if (text[i + 1] === '"') { field += '"'; i++; } else q = false; }
+        else field += c;
+      } else if (c === '"') q = true;
+      else if (c === ',') { row.push(field); field = ''; }
+      else if (c === '\n' || c === '\r') {
+        if (c === '\r' && text[i + 1] === '\n') i++;
+        row.push(field); out.push(row); row = []; field = '';
+      } else field += c;
+    }
+    if (field !== '' || row.length) { row.push(field); out.push(row); }
+    const head = out.shift() || [];
+    return out.filter(r => r.length === head.length).map(r => Object.fromEntries(head.map((h, j) => [h, r[j]])));
+  }
+
+  function groupBy(arr, key) {
+    const m = new Map();
+    for (const a of arr) { const k = key(a); if (!m.has(k)) m.set(k, []); m.get(k).push(a); }
+    return m;
+  }
+  function median(v) {
+    const s = v.slice().sort((a, b) => a - b);
+    const n = s.length;
+    return n % 2 ? s[(n - 1) / 2] : (s[n / 2 - 1] + s[n / 2]) / 2;
+  }
+
+  // Dispersion-threshold (I-DT) fixation detection on time-sorted samples
+  function detectFixations(s, dispPx, minDur, maxGap) {
+    const out = [];
+    const n = s.length;
+    const disp = (a, b) => {
+      let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
+      for (let k = a; k < b; k++) {
+        const p = s[k];
+        if (p.x < x0) x0 = p.x; if (p.x > x1) x1 = p.x;
+        if (p.y < y0) y0 = p.y; if (p.y > y1) y1 = p.y;
+      }
+      return (x1 - x0) + (y1 - y0);
+    };
+    const gapsOk = (a, b) => { for (let k = a + 1; k <= b; k++) if (s[k].t - s[k - 1].t > maxGap) return false; return true; };
+    let i = 0;
+    while (i < n) {
+      let j = i;
+      while (j < n && s[j].t - s[i].t < minDur) j++;
+      if (j >= n) break;
+      if (!gapsOk(i, j) || disp(i, j + 1) > dispPx) { i++; continue; }
+      while (j + 1 < n && s[j + 1].t - s[j].t <= maxGap && disp(i, j + 2) <= dispPx) j++;
+      let sx = 0, sy = 0;
+      for (let k = i; k <= j; k++) { sx += s[k].x; sy += s[k].y; }
+      const m = j - i + 1;
+      out.push({ x: sx / m, y: sy / m, start: s[i].t, end: s[j].t, dur: s[j].t - s[i].t, mt: s[i].mt, n: m });
+      i = j + 1;
+    }
+    return out;
+  }
+
+  function withTimeout(p, ms) {
+    return Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), ms))]);
+  }
+  function once(el, ev) {
+    return new Promise((res, rej) => {
+      el.addEventListener(ev, res, { once: true });
+      el.addEventListener('error', () => rej(new Error('load failed')), { once: true });
+    });
+  }
+  async function loadBackground(file, type, t) {
+    if (!file) return null;
+    const url = URL.createObjectURL(file);
+    try {
+      const c = document.createElement('canvas');
+      if (type === 'video') {
+        const v = document.createElement('video');
+        v.muted = true; v.preload = 'auto';
+        const loaded = once(v, 'loadeddata');
+        v.src = url;
+        await withTimeout(loaded, 15000);
+        const seeked = once(v, 'seeked');
+        v.currentTime = Math.max(0.001, Math.min(t, (v.duration || t) - 0.05));
+        await withTimeout(seeked, 15000);
+        c.width = v.videoWidth; c.height = v.videoHeight;
+        c.getContext('2d').drawImage(v, 0, 0);
+      } else {
+        const img = new Image();
+        img.src = url;
+        await img.decode();
+        c.width = img.naturalWidth; c.height = img.naturalHeight;
+        c.getContext('2d').drawImage(img, 0, 0);
+      }
+      return c;
+    } catch (e) {
+      return null;
+    } finally {
+      URL.revokeObjectURL(url);
+    }
+  }
+
+  function baseCanvas(bg, aw, ah) {
+    const c = document.createElement('canvas');
+    c.width = aw; c.height = ah;
+    const ctx = c.getContext('2d');
+    if (bg) ctx.drawImage(bg, 0, 0, aw, ah);
+    else { ctx.fillStyle = '#808080'; ctx.fillRect(0, 0, aw, ah); }
+    return { c, ctx };
+  }
+
+  function blur(src, w, h, sigma) {
+    const r = Math.max(1, Math.ceil(sigma * 3));
+    const k = new Float32Array(2 * r + 1);
+    let ks = 0;
+    for (let i = -r; i <= r; i++) { k[i + r] = Math.exp(-(i * i) / (2 * sigma * sigma)); ks += k[i + r]; }
+    for (let i = 0; i < k.length; i++) k[i] /= ks;
+    const tmp = new Float32Array(w * h), dst = new Float32Array(w * h);
+    for (let y = 0; y < h; y++) {
+      const o = y * w;
+      for (let x = 0; x < w; x++) {
+        let a = 0;
+        for (let i = -r; i <= r; i++) { const xx = x + i; if (xx >= 0 && xx < w) a += src[o + xx] * k[i + r]; }
+        tmp[o + x] = a;
+      }
+    }
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        let a = 0;
+        for (let i = -r; i <= r; i++) { const yy = y + i; if (yy >= 0 && yy < h) a += tmp[yy * w + x] * k[i + r]; }
+        dst[y * w + x] = a;
+      }
+    }
+    return dst;
+  }
+
+  // Inferno-like colour ramp
+  const RAMP = [[0, 0, 0, 4], [0.25, 66, 10, 104], [0.5, 147, 38, 103], [0.75, 221, 81, 58], [1, 252, 255, 164]];
+  function rampColour(v) {
+    for (let i = 1; i < RAMP.length; i++) {
+      if (v <= RAMP[i][0]) {
+        const [a, ...ca] = RAMP[i - 1], [b, ...cb] = RAMP[i];
+        const f = (v - a) / (b - a);
+        return ca.map((c, j) => Math.round(c + f * (cb[j] - c)));
+      }
+    }
+    return RAMP[RAMP.length - 1].slice(1);
+  }
+
+  function renderHeatmap(bg, W, H, aw, ah, samples, sigmaStimPx) {
+    const { c, ctx } = baseCanvas(bg, aw, ah);
+    const gw = Math.max(1, Math.min(HEAT_GRID_WIDTH, aw));
+    const gk = gw / W;
+    const gh = Math.max(1, Math.round(H * gk));
+    const grid = new Float32Array(gw * gh);
+    for (const s of samples) {
+      const xi = Math.floor(s.x * gk), yi = Math.floor(s.y * gk);
+      if (xi >= 0 && xi < gw && yi >= 0 && yi < gh) grid[yi * gw + xi] += 1;
+    }
+    const heat = blur(grid, gw, gh, Math.max(0.5, sigmaStimPx * gk));
+    let max = 0;
+    for (const v of heat) if (v > max) max = v;
+    if (max > 0) {
+      const small = document.createElement('canvas');
+      small.width = gw; small.height = gh;
+      const sctx = small.getContext('2d');
+      const img = sctx.createImageData(gw, gh);
+      for (let i = 0; i < heat.length; i++) {
+        const v = heat[i] / max;
+        const [r, g, b] = rampColour(v);
+        img.data[i * 4] = r; img.data[i * 4 + 1] = g; img.data[i * 4 + 2] = b;
+        img.data[i * 4 + 3] = Math.round(Math.min(1, v) * 0.75 * 255);
+      }
+      sctx.putImageData(img, 0, 0);
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = 'high';
+      ctx.drawImage(small, 0, 0, aw, ah);
+    }
+    return c;
+  }
+
+  function renderScanpath(bg, aw, ah, k, fix) {
+    const { c, ctx } = baseCanvas(bg, aw, ah);
+    const pts = fix.map(f => ({ x: f.x * k, y: f.y * k, d: f.dur }));
+    const maxD = Math.max(...pts.map(p => p.d), 1);
+    const unit = Math.max(aw, ah) / 100;
+    ctx.lineJoin = 'round';
+    for (const [col, lw] of [['rgba(255,255,255,0.85)', unit * 0.5], ['rgba(0,0,0,0.85)', unit * 0.2]]) {
+      ctx.strokeStyle = col; ctx.lineWidth = lw;
+      ctx.beginPath();
+      pts.forEach((p, i) => (i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y)));
+      ctx.stroke();
+    }
+    pts.forEach((p, i) => {
+      const r = unit * (0.8 + 2.2 * Math.sqrt(p.d / maxD));
+      const hue = pts.length > 1 ? 260 - 200 * i / (pts.length - 1) : 200;
+      ctx.fillStyle = 'hsla(' + hue + ', 70%, 45%, 0.85)';
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = Math.max(1, unit * 0.15);
+      ctx.beginPath(); ctx.arc(p.x, p.y, r, 0, 2 * Math.PI); ctx.fill(); ctx.stroke();
+      ctx.fillStyle = '#ffffff';
+      ctx.font = '600 ' + Math.max(10, Math.round(unit * 1.1)) + 'px system-ui, sans-serif';
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText(String(i + 1), p.x, p.y);
+    });
+    return c;
+  }
+
+  const toBlob = c => new Promise(r => c.toBlob(r, 'image/png'));
+  const tick = () => new Promise(r => setTimeout(r, 0));
+
+  async function analyse(samples, media, opt, prefix) {
+    const outs = [], notes = [], fixRows = [];
+    for (const [stim, all] of groupBy(samples, s => s.stimulus)) {
+      await tick();
+      const type = all[0].type, W = all[0].w, H = all[0].h;
+      let ss = all.filter(s => s.on && Number.isFinite(s.x) && Number.isFinite(s.y));
+      if (type === 'video') {
+        if (opt.start !== null) ss = ss.filter(s => s.mt >= opt.start);
+        if (opt.end !== null) ss = ss.filter(s => s.mt <= opt.end);
+      }
+      if (!ss.length) { notes.push(stim + ' has no gaze samples on the stimulus.'); continue; }
+      let lo = Infinity, hi = -Infinity;
+      for (const s of ss) { if (s.mt < lo) lo = s.mt; if (s.mt > hi) hi = s.mt; }
+      const frameT = opt.frameTime !== null ? opt.frameTime : (lo + hi) / 2;
+      const file = media.get(stim);
+      const bg = await loadBackground(file, type, frameT);
+      if (!bg) notes.push(stim + (file ? ' could not be read, so a grey background was used.' : ' was not among the selected media, so a grey background was used.'));
+
+      const k = Math.min(1, MAX_PLOT_WIDTH / W);
+      const aw = Math.max(1, Math.round(W * k)), ah = Math.max(1, Math.round(H * k));
+      const ppd = median(ss.map(s => s.ppd));
+      const heat = renderHeatmap(bg, W, H, aw, ah, ss, opt.sigmaDeg * ppd);
+      outs.push({ name: prefix + stem(stim) + '_heatmap.png', blob: await toBlob(heat) });
+
+      for (const [p, ps] of groupBy(ss, s => s.participant)) {
+        ps.sort((a, b) => a.t - b.t);
+        const fx = detectFixations(ps, opt.dispDeg * ps[0].ppd, opt.minDur, opt.maxGap);
+        fx.forEach((f, i) => fixRows.push({
+          participant: p, stimulus: stim, fixation: i + 1,
+          start_ms: Math.round(f.start), end_ms: Math.round(f.end), duration_ms: Math.round(f.dur),
+          media_start_s: +f.mt.toFixed(3), x_stim: +f.x.toFixed(1), y_stim: +f.y.toFixed(1), n_samples: f.n
+        }));
+        if (fx.length) {
+          const sc = renderScanpath(bg, aw, ah, k, fx);
+          outs.push({ name: safe(p) + '_' + stem(stim) + '_scanpath.png', blob: await toBlob(sc) });
+        } else {
+          notes.push(p + ' had no fixations on ' + stim + ' with these settings.');
+        }
+      }
+    }
+    if (fixRows.length) outs.push({ name: prefix + 'fixations.csv', blob: csvBlob(fixRows, FIX_COLS) });
+    return { outs, notes };
+  }
+
+  async function runAnalyse() {
+    if (!$('anForm').reportValidity()) return;
+    const num = id => { const v = $(id).value.trim(); return v === '' ? null : parseFloat(v); };
+    const opt = {
+      dispDeg: num('anDisp'), minDur: num('anMin'), maxGap: num('anGap'), sigmaDeg: num('anSigma'),
+      start: num('anStart'), end: num('anEnd'), frameTime: num('anFrame')
+    };
+    $('anRun').disabled = true;
+    $('anLinks').textContent = '';
+    $('anStatus').textContent = 'Reading gaze tables…';
+    try {
+      let samples = [];
+      for (const f of $('anCsv').files) {
+        const parsed = parseCSV(await f.text());
+        if (!parsed.length || !('x_stim' in parsed[0])) throw new Error(f.name + ' is not a gaze table from this app.');
+        samples = samples.concat(parsed.map(normalise));
+      }
+      const media = new Map(Array.from($('anMedia').files).map(f => [f.name, f]));
+      $('anStatus').textContent = 'Making heatmaps and scanpaths…';
+      const res = await analyse(samples, media, opt, 'pooled_');
+      for (const o of res.outs) addLink('anLinks', o.name, o.blob);
+      const n = new Set(samples.map(s => s.participant)).size;
+      $('anStatus').textContent = 'Done. ' + samples.length + ' samples from ' + n + ' participant(s). ' + res.notes.join(' ');
+    } catch (e) {
+      $('anStatus').textContent = e && e.message ? e.message : 'The analysis failed.';
+    }
+    $('anRun').disabled = false;
+  }
+
+  /* ---------- Wiring ---------- */
+
+  document.addEventListener('keydown', e => {
+    if ((e.key === 's' || e.key === 'S') && skipNow) skipNow();
+  });
+  $('startCam').onclick = startCamera;
+  $('beginCal').onclick = calibrate;
+  $('recal').onclick = calibrate;
+  $('startView').onclick = startViewing;
+  $('newSession').onclick = () => location.reload();
+  $('openAnalyse').onclick = () => show('analyse');
+  $('anBack').onclick = () => show('setup');
+  $('anRun').onclick = runAnalyse;
+})();
+</script>
+</body>
+</html>
