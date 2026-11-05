@@ -50,6 +50,26 @@
   .pass { color: var(--good); font-weight: 600; }
   .fail { color: var(--bad); font-weight: 600; }
   .links li { margin: 6px 0; }
+  select {
+    font: inherit; padding: 8px 10px; border: 1px solid var(--line); border-radius: 6px;
+    background: var(--bg); color: var(--ink); max-width: 100%;
+  }
+  button.small { padding: 6px 12px; font-weight: 550; }
+  .inline { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+  .inline input[type=number] { display: inline-block; width: 6em; margin: 0; }
+
+  #analyse { max-width: 960px; }
+  #aoiCanvas {
+    display: block; width: 100%; height: auto; margin: 8px 0 4px; cursor: crosshair;
+    border: 1px solid var(--line); border-radius: 6px; touch-action: none;
+  }
+  .aoi-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; padding: 10px 0; border-bottom: 1px solid var(--line); }
+  .aoi-row input[type=text] { display: inline-block; width: 12em; margin: 0; }
+  .swatch { width: 16px; height: 16px; border-radius: 3px; flex: none; }
+  .warn { color: var(--bad); }
+  ol.steps { padding-left: 1.4em; margin: 0 0 16px; max-width: 62ch; }
+  ol.steps li { margin: 0 0 12px; }
+  ol.steps strong { display: block; }
 
   #stage { position: fixed; inset: 0; z-index: 1000; background: var(--bg); }
   #hud { position: fixed; top: 12px; left: 0; right: 0; text-align: center; color: var(--muted); margin: 0 auto; }
@@ -116,7 +136,24 @@
 <section id="camera" hidden>
   <h1>Check your position</h1>
   <p>Sit at the distance you entered. Keep your whole face inside the preview at the bottom right. Use even light on your face and avoid a bright window behind you.</p>
-  <p class="muted">Calibration will switch to full screen. Keep your head still from here on.</p>
+  <div class="row"><button id="toIntro" type="button">My face is visible, continue</button></div>
+</section>
+
+<section id="intro" hidden>
+  <h1>What happens next</h1>
+  <p>The session has four parts and takes a few minutes. The screen switches to full screen when you begin.</p>
+  <ol class="steps">
+    <li><strong>First you calibrate the tracker.</strong>Circles appear one at a time in different places on the screen. Look at the centre of each circle and click it five times while you keep looking at it. The tracker learns where your eyes point from the moments when you click.</li>
+    <li><strong>Second you check the accuracy.</strong>Five new circles appear one at a time. Only look at each circle until it disappears, and do not click. You then see how accurate the tracking is. If it is not accurate enough, you can calibrate again.</li>
+    <li><strong>Third you look at the images and videos.</strong>A cross appears in the middle of the screen before each one. Look at the cross until the image or video appears, then look at it freely. Images stay for a fixed time, and videos play to the end. Press S to skip one.</li>
+    <li><strong>Finally you check the accuracy once more.</strong>The circles from the second part appear again. This shows whether the tracking became less accurate while you were looking.</li>
+  </ol>
+  <p><strong>During the whole session</strong></p>
+  <ul class="steps">
+    <li>Keep your head still and stay at the same distance from the screen. Moving, leaning or slumping makes the tracking less accurate.</li>
+    <li>Keep the light the same. Do not switch lamps on or off or move in front of a window.</li>
+    <li>Stay in full screen and do not switch to other windows.</li>
+  </ul>
   <div class="row"><button id="beginCal" type="button">Begin calibration</button></div>
 </section>
 
@@ -146,38 +183,79 @@
   <h1>Finished</h1>
   <p id="summary"></p>
   <ul id="links" class="links"></ul>
+  <div class="row"><button id="dlAllDone" class="secondary small" type="button">Download all files</button></div>
   <p id="doneStatus" class="muted" role="status"></p>
   <p class="muted">Download every file before closing this page. The files exist only in this browser tab.</p>
-  <div class="row"><button id="newSession" class="secondary" type="button">Start a new session</button></div>
+  <div class="row">
+    <button id="toAnalyse" type="button">Areas of interest and backgrounds</button>
+    <button id="newSession" class="secondary" type="button">Start a new session</button>
+  </div>
 </section>
 
 <section id="analyse" hidden>
-  <h1>Analyse saved recordings</h1>
-  <p>Select the gaze tables, which end in <code>_gaze.csv</code>, and the original images and videos. Files are matched to stimuli by file name. Heatmaps pool all participants, and each participant gets a scanpath per stimulus.</p>
+  <h1>Analyse recordings</h1>
+  <p id="anSessionNote" hidden>This analysis uses the session you just recorded.</p>
   <form id="anForm" onsubmit="return false">
-    <label>Gaze tables
-      <input id="anCsv" type="file" accept=".csv,text/csv" multiple required>
-    </label>
-    <label>Images and videos
-      <small>Without them the plots are drawn on a grey background.</small>
-      <input id="anMedia" type="file" accept="image/*,video/*" multiple>
-    </label>
+    <div id="anFiles">
+      <p>Select the gaze tables, which end in <code>_gaze.csv</code>, and the original images and videos. Files are matched to stimuli by file name. Heatmaps and area summaries pool all participants, and each participant gets a scanpath per stimulus.</p>
+      <label>Gaze tables
+        <input id="anCsv" type="file" accept=".csv,text/csv" multiple>
+      </label>
+      <label>Images and videos
+        <small>Without them the plots are drawn on a grey background.</small>
+        <input id="anMedia" type="file" accept="image/*,video/*" multiple>
+      </label>
+      <label>Session files, optional
+        <small>The <code>_session.json</code> files. They fill in the measured gaze accuracy.</small>
+        <input id="anSession" type="file" accept=".json,application/json" multiple>
+      </label>
+    </div>
+
+    <h2>Backgrounds and areas of interest</h2>
+    <p id="aoiEmpty" class="muted">Load at least one gaze table to change backgrounds or draw areas of interest.</p>
+    <div id="aoiEditor" hidden>
+      <p>Choose a stimulus. To show the plots on your own version of the image, for example one where you marked the areas in Photoshop or Illustrator, click Replace background. It should have the same proportions as the original. To let the app count fixations in areas, drag on the image to draw rectangles. Where rectangles overlap, the one drawn later counts. Fixations outside every area are labelled none.</p>
+      <div class="row">
+        <select id="aoiStim" aria-label="Stimulus"></select>
+        <button id="bgReplace" class="secondary small" type="button">Replace background</button>
+        <button id="bgReset" class="secondary small" type="button" hidden>Use the original</button>
+        <input id="bgFile" type="file" accept="image/*" hidden>
+        <span id="aoiFrameBox" class="inline" hidden>
+          <input id="aoiFrame" type="number" min="0" step="any" aria-label="Video frame in seconds">
+          <button id="aoiShowFrame" class="secondary small" type="button">Show video frame at this second</button>
+        </span>
+      </div>
+      <p id="bgNote" class="muted" hidden></p>
+      <canvas id="aoiCanvas" width="16" height="9"></canvas>
+      <div id="aoiList"></div>
+      <div class="row">
+        <button id="aoiSave" class="secondary small" type="button">Save AOI file</button>
+        <button id="aoiLoad" class="secondary small" type="button">Load AOI file</button>
+        <button id="aoiClear" class="secondary small" type="button">Remove all areas on this stimulus</button>
+        <input id="aoiFile" type="file" accept=".json,application/json" hidden>
+      </div>
+    </div>
+
+    <h2>Settings</h2>
     <div class="grid">
       <label>Fixation dispersion in degrees<input id="anDisp" type="number" min="0.1" step="any" value="2.5" required></label>
       <label>Minimum fixation in ms<input id="anMin" type="number" min="10" step="any" value="100" required></label>
       <label>Largest sample gap in ms<input id="anGap" type="number" min="10" step="any" value="150" required></label>
       <label>Heatmap smoothing in degrees<input id="anSigma" type="number" min="0.1" step="any" value="1.5" required></label>
+      <label>Scanpath time bins in seconds<small>One extra scanpath per bin. Leave empty to skip.</small><input id="anBin" type="number" min="0.1" step="any" value="1"></label>
+      <label>Expected gaze accuracy in degrees<small>Filled in from session data when available. Areas narrower than twice this value get a warning.</small><input id="anAcc" type="number" min="0.1" step="any" value="4" required></label>
       <label>Video window start in s<small>Leave empty for the whole video.</small><input id="anStart" type="number" min="0" step="any"></label>
       <label>Video window end in s<small>Leave empty for the whole video.</small><input id="anEnd" type="number" min="0" step="any"></label>
       <label>Video background frame in s<small>Leave empty for the middle of the window.</small><input id="anFrame" type="number" min="0" step="any"></label>
     </div>
     <div class="row">
       <button id="anBack" class="secondary" type="button">Back</button>
-      <button id="anRun" type="button">Make heatmaps and scanpaths</button>
+      <button id="anRun" type="button">Make the plots and tables</button>
     </div>
   </form>
   <p id="anStatus" class="muted" role="status"></p>
   <ul id="anLinks" class="links"></ul>
+  <div class="row"><button id="dlAllAn" class="secondary small" type="button" hidden>Download all files</button></div>
 </section>
 
 <script src="webgazer.js"></script>
@@ -203,7 +281,8 @@
   const MAX_VIDEO_WIDTH = 1280;
   const TRAIL_MS = 600;
   // Analysis defaults used at the end of a session
-  const DEFAULT_ANALYSIS = { dispDeg: 2.5, minDur: 100, maxGap: 150, sigmaDeg: 1.5, start: null, end: null, frameTime: null };
+  const DEFAULT_ANALYSIS = { dispDeg: 2.5, minDur: 100, maxGap: 150, sigmaDeg: 1.5, binSec: 1, start: null, end: null, frameTime: null };
+  const MAX_BINS = 600;
   const MAX_PLOT_WIDTH = 1600;
   const HEAT_GRID_WIDTH = 400;
 
@@ -211,12 +290,22 @@
                 'x_screen','y_screen','x_stim','y_stim','on_stimulus','stim_w','stim_h','stim_px_per_deg'];
   const FIX_COLS = ['participant','stimulus','fixation','start_ms','end_ms','duration_ms','media_start_s',
                     'x_stim','y_stim','n_samples'];
+  const AOI_COLS = ['participant','stimulus','aoi','fixation_count','dwell_ms','dwell_share',
+                    'time_to_first_fixation_ms','visits'];
+  const AOI_COLOURS = ['#e6194b','#3cb44b','#4363d8','#f58231','#911eb4','#0fa3b1','#f032e6','#808000'];
 
   let latest = null, collecting = null, current = null, skipNow = null;
   let listenersOn = true, preVal = null, postVal = null, pid = '';
   const rows = [], outputs = [], errors = [];
+  let sessionFiles = [];
+  // Analysis page state
+  const aState = { samples: [], media: new Map(), stimuli: new Map(), prefix: 'pooled_' };
+  const aois = new Map();   // stimulus file name -> [{ name, x, y, w, h, from, to }] in stimulus pixels
+  const bgOverride = new Map();   // stimulus file name -> replacement background image file
+  const ed = { stim: null, bg: null, drag: null, k: 1 };
+  let anReturn = 'setup';
 
-  const sections = ['setup', 'camera', 'stage', 'result', 'show', 'done', 'analyse'];
+  const sections = ['setup', 'camera', 'intro', 'stage', 'result', 'show', 'done', 'analyse'];
   function show(id) { for (const s of sections) $(s).hidden = s !== id; }
   function place(el, fx, fy) {
     el.style.left = fx * window.innerWidth + 'px';
@@ -549,6 +638,7 @@
   }
 
   async function finish(files) {
+    sessionFiles = files;
     try { webgazer.end(); } catch (e) { /* already stopped */ }
     try { if (document.fullscreenElement) await document.exitFullscreen(); } catch (e) { /* ignore */ }
     const g = geometry();
@@ -771,20 +861,23 @@
     return c;
   }
 
-  function renderScanpath(bg, aw, ah, k, fix) {
+  function renderScanpath(bg, aw, ah, k, fix, o = {}) {
     const { c, ctx } = baseCanvas(bg, aw, ah);
     const pts = fix.map(f => ({ x: f.x * k, y: f.y * k, d: f.dur }));
-    const maxD = Math.max(...pts.map(p => p.d), 1);
+    const numbers = o.numbers || pts.map((p, i) => i + 1);
+    const maxD = o.maxDur || Math.max(...pts.map(p => p.d), 1);
     const unit = Math.max(aw, ah) / 100;
     ctx.lineJoin = 'round';
-    for (const [col, lw] of [['rgba(255,255,255,0.85)', unit * 0.5], ['rgba(0,0,0,0.85)', unit * 0.2]]) {
-      ctx.strokeStyle = col; ctx.lineWidth = lw;
-      ctx.beginPath();
-      pts.forEach((p, i) => (i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y)));
-      ctx.stroke();
+    if (pts.length > 1) {
+      for (const [col, lw] of [['rgba(255,255,255,0.85)', unit * 0.5], ['rgba(0,0,0,0.85)', unit * 0.2]]) {
+        ctx.strokeStyle = col; ctx.lineWidth = lw;
+        ctx.beginPath();
+        pts.forEach((p, i) => (i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y)));
+        ctx.stroke();
+      }
     }
     pts.forEach((p, i) => {
-      const r = unit * (0.8 + 2.2 * Math.sqrt(p.d / maxD));
+      const r = unit * (0.8 + 2.2 * Math.sqrt(Math.min(1, p.d / maxD)));
       const hue = pts.length > 1 ? 260 - 200 * i / (pts.length - 1) : 200;
       ctx.fillStyle = 'hsla(' + hue + ', 70%, 45%, 0.85)';
       ctx.strokeStyle = '#ffffff';
@@ -793,16 +886,70 @@
       ctx.fillStyle = '#ffffff';
       ctx.font = '600 ' + Math.max(10, Math.round(unit * 1.1)) + 'px system-ui, sans-serif';
       ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-      ctx.fillText(String(i + 1), p.x, p.y);
+      ctx.fillText(String(numbers[i]), p.x, p.y);
     });
+    if (o.label) {
+      const text = pts.length ? o.label : o.label + ', no fixations';
+      const fh = Math.max(12, Math.round(unit * 1.8));
+      ctx.font = '600 ' + fh + 'px system-ui, sans-serif';
+      const tw = ctx.measureText(text).width;
+      ctx.fillStyle = 'rgba(0,0,0,0.7)';
+      ctx.fillRect(unit, unit, tw + fh, fh * 1.6);
+      ctx.fillStyle = '#ffffff';
+      ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+      ctx.fillText(text, unit + fh / 2, unit + fh * 0.8);
+    }
     return c;
   }
+
+  const fmtSec = v => String(+v.toFixed(2));
+  const padSec = v => { const [i, d] = fmtSec(v).split('.'); return i.padStart(3, '0') + (d ? 'p' + d : ''); };
 
   const toBlob = c => new Promise(r => c.toBlob(r, 'image/png'));
   const tick = () => new Promise(r => setTimeout(r, 0));
 
-  async function analyse(samples, media, opt, prefix) {
-    const outs = [], notes = [], fixRows = [];
+  function inWindow(a, f, type) {
+    return type !== 'video' || ((a.from === null || f.mt >= a.from) && (a.to === null || f.mt <= a.to));
+  }
+  function aoiIndex(f, list, type) {
+    for (let i = list.length - 1; i >= 0; i--) {
+      const a = list[i];
+      if (inWindow(a, f, type) && f.x >= a.x && f.x <= a.x + a.w && f.y >= a.y && f.y <= a.y + a.h) return i;
+    }
+    return -1;
+  }
+  function drawAoi(ctx, a, i, k, unit, label) {
+    const col = AOI_COLOURS[i % AOI_COLOURS.length];
+    ctx.fillStyle = col + '33';
+    ctx.fillRect(a.x * k, a.y * k, a.w * k, a.h * k);
+    ctx.strokeStyle = col;
+    ctx.lineWidth = Math.max(2, unit);
+    ctx.strokeRect(a.x * k, a.y * k, a.w * k, a.h * k);
+    const fh = Math.max(11, Math.round(unit * 4));
+    ctx.font = '600 ' + fh + 'px system-ui, sans-serif';
+    const tw = ctx.measureText(label).width;
+    ctx.fillStyle = col;
+    ctx.fillRect(a.x * k, a.y * k, tw + fh * 0.8, fh * 1.5);
+    ctx.fillStyle = '#ffffff';
+    ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+    ctx.fillText(label, a.x * k + fh * 0.4, a.y * k + fh * 0.75);
+  }
+  function renderAoiImage(bg, aw, ah, k, list, pool, type) {
+    const { c, ctx } = baseCanvas(bg, aw, ah);
+    const unit = Math.max(aw, ah) / 300;
+    list.forEach((a, i) => {
+      let label = a.name + '  ' + (pool[i].tot > 0 ? Math.round(100 * pool[i].hit / pool[i].tot) + '%' : 'no data');
+      if (type === 'video' && (a.from !== null || a.to !== null)) {
+        label += '  (' + (a.from === null ? 0 : a.from) + ' to ' + (a.to === null ? 'end' : a.to) + ' s)';
+      }
+      drawAoi(ctx, a, i, k, unit, label);
+    });
+    return c;
+  }
+
+  async function analyse(samples, media, opt, prefix, aoiMap = null, overrides = null) {
+    const outs = [], notes = [], fixRows = [], aoiRows = [];
+    const useAoi = !!aoiMap && Array.from(aoiMap.values()).some(l => l.length);
     for (const [stim, all] of groupBy(samples, s => s.stimulus)) {
       await tick();
       const type = all[0].type, W = all[0].w, H = all[0].h;
@@ -816,7 +963,13 @@
       for (const s of ss) { if (s.mt < lo) lo = s.mt; if (s.mt > hi) hi = s.mt; }
       const frameT = opt.frameTime !== null ? opt.frameTime : (lo + hi) / 2;
       const file = media.get(stim);
-      const bg = await loadBackground(file, type, frameT);
+      const ov = overrides ? overrides.get(stim) : null;
+      let bg = null;
+      if (ov) {
+        bg = await loadBackground(ov, 'image', 0);
+        if (!bg) notes.push('The replacement background ' + ov.name + ' could not be read, so the original was used.');
+      }
+      if (!bg) bg = await loadBackground(file, type, frameT);
       if (!bg) notes.push(stim + (file ? ' could not be read, so a grey background was used.' : ' was not among the selected media, so a grey background was used.'));
 
       const k = Math.min(1, MAX_PLOT_WIDTH / W);
@@ -825,36 +978,109 @@
       const heat = renderHeatmap(bg, W, H, aw, ah, ss, opt.sigmaDeg * ppd);
       outs.push({ name: prefix + stem(stim) + '_heatmap.png', blob: await toBlob(heat) });
 
+      const list = useAoi ? (aoiMap.get(stim) || []) : [];
+      const pool = list.map(() => ({ hit: 0, tot: 0 }));
       for (const [p, ps] of groupBy(ss, s => s.participant)) {
         ps.sort((a, b) => a.t - b.t);
         const fx = detectFixations(ps, opt.dispDeg * ps[0].ppd, opt.minDur, opt.maxGap);
+        for (const f of fx) f.aoiIdx = aoiIndex(f, list, type);
         fx.forEach((f, i) => fixRows.push({
           participant: p, stimulus: stim, fixation: i + 1,
           start_ms: Math.round(f.start), end_ms: Math.round(f.end), duration_ms: Math.round(f.dur),
-          media_start_s: +f.mt.toFixed(3), x_stim: +f.x.toFixed(1), y_stim: +f.y.toFixed(1), n_samples: f.n
+          media_start_s: +f.mt.toFixed(3), x_stim: +f.x.toFixed(1), y_stim: +f.y.toFixed(1), n_samples: f.n,
+          aoi: f.aoiIdx >= 0 ? list[f.aoiIdx].name : 'none'
         }));
+        list.forEach((a, i) => {
+          const win = fx.filter(f => inWindow(a, f, type));
+          const tot = win.reduce((sum, f) => sum + f.dur, 0);
+          const hits = win.filter(f => f.aoiIdx === i);
+          const dwell = hits.reduce((sum, f) => sum + f.dur, 0);
+          let visits = 0, prev = false;
+          for (const f of win) { const h = f.aoiIdx === i; if (h && !prev) visits++; prev = h; }
+          const first = hits[0];
+          const ttff = !first ? '' : type === 'video'
+            ? Math.round((first.mt - (a.from === null ? 0 : a.from)) * 1000)
+            : Math.round(first.start);
+          aoiRows.push({
+            participant: p, stimulus: stim, aoi: a.name, fixation_count: hits.length,
+            dwell_ms: Math.round(dwell), dwell_share: tot > 0 ? +(dwell / tot).toFixed(3) : '',
+            time_to_first_fixation_ms: ttff, visits
+          });
+          pool[i].hit += dwell;
+          pool[i].tot += tot;
+        });
         if (fx.length) {
           const sc = renderScanpath(bg, aw, ah, k, fx);
           outs.push({ name: safe(p) + '_' + stem(stim) + '_scanpath.png', blob: await toBlob(sc) });
         } else {
           notes.push(p + ' had no fixations on ' + stim + ' with these settings.');
         }
+        if (opt.binSec && fx.length) {
+          // One scanpath per time bin. A fixation belongs to the bin in which it starts.
+          const bw = opt.binSec;
+          const tOf = f => (type === 'video' ? f.mt : f.start / 1000);
+          let lo = 0, hi = ps[ps.length - 1].t / 1000;
+          if (type === 'video') {
+            lo = Infinity; hi = -Infinity;
+            for (const q of ps) { if (q.mt < lo) lo = q.mt; if (q.mt > hi) hi = q.mt; }
+          }
+          const b0 = Math.floor(lo / bw), b1 = Math.floor(hi / bw);
+          const last = Math.min(b1, b0 + MAX_BINS - 1);
+          if (last < b1) notes.push('Only the first ' + MAX_BINS + ' time bins were drawn for ' + p + ' on ' + stim + '.');
+          const maxDur = Math.max(...fx.map(f => f.dur), 1);
+          for (let b = b0; b <= last; b++) {
+            const a = b * bw, z = (b + 1) * bw;
+            const idx = [];
+            fx.forEach((f, i) => { const tt = tOf(f); if (tt >= a && tt < z) idx.push(i); });
+            const sc = renderScanpath(bg, aw, ah, k, idx.map(i => fx[i]), {
+              numbers: idx.map(i => i + 1), maxDur, label: fmtSec(a) + ' to ' + fmtSec(z) + ' s'
+            });
+            outs.push({ name: safe(p) + '_' + stem(stim) + '_scanpath_' + padSec(a) + '-' + padSec(z) + 's.png', blob: await toBlob(sc) });
+            if (b % 10 === 9) await tick();
+          }
+        }
+      }
+      if (list.length) {
+        const im = renderAoiImage(bg, aw, ah, k, list, pool, type);
+        outs.push({ name: prefix + stem(stim) + '_aois.png', blob: await toBlob(im) });
       }
     }
-    if (fixRows.length) outs.push({ name: prefix + 'fixations.csv', blob: csvBlob(fixRows, FIX_COLS) });
+    if (fixRows.length) {
+      outs.push({ name: prefix + 'fixations.csv', blob: csvBlob(fixRows, useAoi ? FIX_COLS.concat('aoi') : FIX_COLS) });
+    }
+    if (aoiRows.length) outs.push({ name: prefix + 'aoi_summary.csv', blob: csvBlob(aoiRows, AOI_COLS) });
     return { outs, notes };
   }
 
-  async function runAnalyse() {
-    if (!$('anForm').reportValidity()) return;
-    const num = id => { const v = $(id).value.trim(); return v === '' ? null : parseFloat(v); };
-    const opt = {
-      dispDeg: num('anDisp'), minDur: num('anMin'), maxGap: num('anGap'), sigmaDeg: num('anSigma'),
-      start: num('anStart'), end: num('anEnd'), frameTime: num('anFrame')
-    };
-    $('anRun').disabled = true;
-    $('anLinks').textContent = '';
-    $('anStatus').textContent = 'Reading gaze tables…';
+  /* ---------- Areas of interest editor ---------- */
+
+  function setAnalysisData(samples, media, accuracy) {
+    aState.samples = samples;
+    aState.media = media;
+    aState.stimuli = new Map();
+    for (const [name, ss] of groupBy(samples, s => s.stimulus)) {
+      let lo = Infinity, hi = -Infinity;
+      for (const s of ss) { if (s.mt < lo) lo = s.mt; if (s.mt > hi) hi = s.mt; }
+      aState.stimuli.set(name, { name, type: ss[0].type, W: ss[0].w, H: ss[0].h, ppd: median(ss.map(s => s.ppd)), lo, hi });
+    }
+    if (Number.isFinite(accuracy)) $('anAcc').value = accuracy.toFixed(2);
+    const sel = $('aoiStim');
+    const keep = sel.value;
+    sel.textContent = '';
+    for (const name of aState.stimuli.keys()) {
+      const o = document.createElement('option');
+      o.value = name; o.textContent = name;
+      sel.append(o);
+    }
+    if (aState.stimuli.has(keep)) sel.value = keep;
+    const any = aState.stimuli.size > 0;
+    $('aoiEditor').hidden = !any;
+    $('aoiEmpty').hidden = any;
+    if (any) selectStimulus(sel.value);
+  }
+
+  async function loadFromInputs() {
+    $('anStatus').textContent = '';
     try {
       let samples = [];
       for (const f of $('anCsv').files) {
@@ -862,12 +1088,251 @@
         if (!parsed.length || !('x_stim' in parsed[0])) throw new Error(f.name + ' is not a gaze table from this app.');
         samples = samples.concat(parsed.map(normalise));
       }
+      const offsets = [];
+      for (const f of $('anSession').files) {
+        try {
+          const j = JSON.parse(await f.text());
+          const v = j.validation_before && j.validation_before.mean_offset_deg;
+          if (Number.isFinite(v)) offsets.push(v);
+        } catch (e) { /* not a session file */ }
+      }
       const media = new Map(Array.from($('anMedia').files).map(f => [f.name, f]));
-      $('anStatus').textContent = 'Making heatmaps and scanpaths…';
-      const res = await analyse(samples, media, opt, 'pooled_');
+      setAnalysisData(samples, media, offsets.length ? offsets.reduce((a, b) => a + b, 0) / offsets.length : NaN);
+      if (samples.length) {
+        const n = new Set(samples.map(s => s.participant)).size;
+        $('anStatus').textContent = samples.length + ' samples from ' + n + ' participant(s) loaded.';
+      }
+    } catch (e) {
+      $('anStatus').textContent = e && e.message ? e.message : 'The files could not be read.';
+    }
+  }
+
+  async function selectStimulus(name) {
+    const st = aState.stimuli.get(name);
+    if (!st) return;
+    ed.stim = st;
+    ed.drag = null;
+    if (!aois.has(name)) aois.set(name, []);
+    const isVideo = st.type === 'video';
+    if (isVideo) $('aoiFrame').value = ((st.lo + st.hi) / 2).toFixed(1);
+    updateBgControls();
+    renderAoiList();
+    await loadEditorBackground(isVideo ? parseFloat($('aoiFrame').value) : 0);
+  }
+
+  async function loadEditorBackground(t) {
+    const st = ed.stim;
+    const c = $('aoiCanvas');
+    ed.k = Math.min(1, MAX_PLOT_WIDTH / st.W);
+    c.width = Math.max(1, Math.round(st.W * ed.k));
+    c.height = Math.max(1, Math.round(st.H * ed.k));
+    ed.bg = null;
+    drawEditor();
+    const ov = bgOverride.get(st.name);
+    let bg = ov ? await loadBackground(ov, 'image', 0) : null;
+    if (!bg) bg = await loadBackground(aState.media.get(st.name), st.type, Number.isFinite(t) ? t : 0);
+    if (ed.stim === st) { ed.bg = bg; drawEditor(); }
+  }
+
+  function updateBgControls() {
+    const st = ed.stim;
+    if (!st) return;
+    const ov = bgOverride.get(st.name);
+    $('bgReset').hidden = !ov;
+    $('aoiFrameBox').hidden = st.type !== 'video' || !!ov;
+    const note = $('bgNote');
+    note.hidden = !ov;
+    if (ov) note.textContent = 'Plots for this stimulus are drawn on ' + ov.name + '.' + (ov.warn ? ' ' + ov.warn : '');
+  }
+
+  async function replaceBackground(file) {
+    const st = ed.stim;
+    if (!st || !file) return;
+    const c = await loadBackground(file, 'image', 0);
+    if (!c) { $('anStatus').textContent = file.name + ' could not be read as an image.'; return; }
+    const r1 = c.width / c.height, r0 = st.W / st.H;
+    file.warn = Math.abs(r1 / r0 - 1) > 0.02
+      ? 'Its proportions differ from the original, so it is stretched to fit. Gaze positions and areas still follow the original image.'
+      : '';
+    bgOverride.set(st.name, file);
+    updateBgControls();
+    await loadEditorBackground(0);
+  }
+
+  function normRect(d) {
+    return { x: Math.min(d.x0, d.x1), y: Math.min(d.y0, d.y1), w: Math.abs(d.x1 - d.x0), h: Math.abs(d.y1 - d.y0) };
+  }
+
+  function drawEditor() {
+    const st = ed.stim;
+    if (!st) return;
+    const c = $('aoiCanvas'), ctx = c.getContext('2d'), k = ed.k;
+    if (ed.bg) ctx.drawImage(ed.bg, 0, 0, c.width, c.height);
+    else { ctx.fillStyle = '#808080'; ctx.fillRect(0, 0, c.width, c.height); }
+    const unit = Math.max(c.width, c.height) / 300;
+    (aois.get(st.name) || []).forEach((a, i) => drawAoi(ctx, a, i, k, unit, a.name));
+    if (ed.drag) {
+      const r = normRect(ed.drag);
+      ctx.setLineDash([unit * 3, unit * 2]);
+      ctx.lineWidth = Math.max(2, unit);
+      ctx.strokeStyle = '#ffffff';
+      ctx.strokeRect(r.x * k, r.y * k, r.w * k, r.h * k);
+      ctx.strokeStyle = '#000000';
+      ctx.lineDashOffset = unit * 2.5;
+      ctx.strokeRect(r.x * k, r.y * k, r.w * k, r.h * k);
+      ctx.setLineDash([]);
+      ctx.lineDashOffset = 0;
+    }
+  }
+
+  function stimPoint(e) {
+    const r = $('aoiCanvas').getBoundingClientRect(), st = ed.stim;
+    return {
+      x: Math.max(0, Math.min(st.W, (e.clientX - r.left) / r.width * st.W)),
+      y: Math.max(0, Math.min(st.H, (e.clientY - r.top) / r.height * st.H))
+    };
+  }
+
+  function numOrNull(v) { v = String(v).trim(); const n = parseFloat(v); return v === '' || !Number.isFinite(n) ? null : n; }
+
+  function renderAoiList() {
+    const box = $('aoiList');
+    box.textContent = '';
+    const st = ed.stim;
+    if (!st) return;
+    const list = aois.get(st.name) || [];
+    if (!list.length) {
+      const p = document.createElement('p');
+      p.className = 'muted';
+      p.textContent = 'No areas of interest on this stimulus yet.';
+      box.append(p);
+      return;
+    }
+    const acc = parseFloat($('anAcc').value);
+    list.forEach((a, i) => {
+      const row = document.createElement('div');
+      row.className = 'aoi-row';
+      const sw = document.createElement('span');
+      sw.className = 'swatch';
+      sw.style.background = AOI_COLOURS[i % AOI_COLOURS.length];
+      const name = document.createElement('input');
+      name.type = 'text';
+      name.value = a.name;
+      name.setAttribute('aria-label', 'Name of area ' + (i + 1));
+      name.oninput = () => { a.name = name.value.trim() || ('AOI ' + (i + 1)); drawEditor(); };
+      row.append(sw, name);
+      if (st.type === 'video') {
+        const win = document.createElement('span');
+        win.className = 'inline';
+        const from = document.createElement('input'), to = document.createElement('input');
+        for (const [inp, key, lab] of [[from, 'from', 'Start'], [to, 'to', 'End']]) {
+          inp.type = 'number'; inp.min = '0'; inp.step = 'any';
+          inp.value = a[key] === null ? '' : a[key];
+          inp.placeholder = key === 'from' ? 'start' : 'end';
+          inp.setAttribute('aria-label', lab + ' of area ' + (i + 1) + ' in seconds');
+          inp.onchange = () => { a[key] = numOrNull(inp.value); };
+        }
+        win.append('Active from', from, 'to', to, 's');
+        row.append(win);
+      }
+      const wd = a.w / st.ppd, hd = a.h / st.ppd;
+      const size = document.createElement('span');
+      size.className = 'muted';
+      size.textContent = wd.toFixed(1) + ' by ' + hd.toFixed(1) + ' degrees';
+      row.append(size);
+      if (Number.isFinite(acc) && Math.min(wd, hd) < 2 * acc) {
+        const w = document.createElement('span');
+        w.className = 'warn';
+        w.textContent = 'Narrower than twice the expected accuracy, so results for this area are unreliable.';
+        row.append(w);
+      }
+      const del = document.createElement('button');
+      del.type = 'button';
+      del.className = 'secondary small';
+      del.textContent = 'Delete';
+      del.onclick = () => { list.splice(i, 1); renderAoiList(); drawEditor(); };
+      row.append(del);
+      box.append(row);
+    });
+  }
+
+  function saveAoiFile() {
+    const out = { app: 'gaze-lab', version: 1, stimuli: {} };
+    for (const [name, list] of aois) {
+      if (!list.length) continue;
+      const st = aState.stimuli.get(name);
+      out.stimuli[name] = { stim_w: st ? st.W : null, stim_h: st ? st.H : null, aois: list };
+    }
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([JSON.stringify(out, null, 2)], { type: 'application/json' }));
+    a.download = 'aois.json';
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  }
+
+  async function loadAoiFile(file) {
+    try {
+      const j = JSON.parse(await file.text());
+      if (!j || !j.stimuli) throw new Error('not an AOI file');
+      let n = 0;
+      for (const [name, entry] of Object.entries(j.stimuli)) {
+        const st = aState.stimuli.get(name);
+        const sx = st && entry.stim_w ? st.W / entry.stim_w : 1;
+        const sy = st && entry.stim_h ? st.H / entry.stim_h : 1;
+        const list = (entry.aois || []).map((a, i) => ({
+          name: String(a.name || ('AOI ' + (i + 1))),
+          x: +a.x * sx, y: +a.y * sy, w: +a.w * sx, h: +a.h * sy,
+          from: numOrNull(a.from === null || a.from === undefined ? '' : a.from),
+          to: numOrNull(a.to === null || a.to === undefined ? '' : a.to)
+        })).filter(a => [a.x, a.y, a.w, a.h].every(Number.isFinite));
+        aois.set(name, list);
+        n += list.length;
+      }
+      renderAoiList();
+      drawEditor();
+      $('anStatus').textContent = n + ' area(s) of interest loaded from ' + file.name + '.';
+    } catch (e) {
+      $('anStatus').textContent = file.name + ' could not be read as an AOI file.';
+    }
+  }
+
+  function openAnalysis(fromSession) {
+    $('anLinks').textContent = '';
+    $('dlAllAn').hidden = true;
+    $('anStatus').textContent = '';
+    $('anFiles').hidden = fromSession;
+    $('anSessionNote').hidden = !fromSession;
+    if (fromSession) {
+      anReturn = 'done';
+      aState.prefix = pid + '_';
+      const acc = preVal ? preVal.mean_offset_deg : null;
+      setAnalysisData(rows.map(normalise), new Map(sessionFiles.map(f => [f.name, f])), acc === null ? NaN : acc);
+    } else {
+      anReturn = 'setup';
+      aState.prefix = 'pooled_';
+      loadFromInputs();
+    }
+    show('analyse');
+  }
+
+  async function runAnalyse() {
+    if (!$('anForm').reportValidity()) return;
+    if (!aState.samples.length) { $('anStatus').textContent = 'Load at least one gaze table first.'; return; }
+    const num = id => numOrNull($(id).value);
+    const opt = {
+      dispDeg: num('anDisp'), minDur: num('anMin'), maxGap: num('anGap'), sigmaDeg: num('anSigma'),
+      binSec: num('anBin'), start: num('anStart'), end: num('anEnd'), frameTime: num('anFrame')
+    };
+    $('anRun').disabled = true;
+    $('anLinks').textContent = '';
+    $('dlAllAn').hidden = true;
+    $('anStatus').textContent = 'Making the plots and tables…';
+    try {
+      const res = await analyse(aState.samples, aState.media, opt, aState.prefix, aois, bgOverride);
       for (const o of res.outs) addLink('anLinks', o.name, o.blob);
-      const n = new Set(samples.map(s => s.participant)).size;
-      $('anStatus').textContent = 'Done. ' + samples.length + ' samples from ' + n + ' participant(s). ' + res.notes.join(' ');
+      $('dlAllAn').hidden = !res.outs.length;
+      const n = new Set(aState.samples.map(s => s.participant)).size;
+      $('anStatus').textContent = 'Done. ' + aState.samples.length + ' samples from ' + n + ' participant(s). ' + res.notes.join(' ');
     } catch (e) {
       $('anStatus').textContent = e && e.message ? e.message : 'The analysis failed.';
     }
@@ -880,13 +1345,62 @@
     if ((e.key === 's' || e.key === 'S') && skipNow) skipNow();
   });
   $('startCam').onclick = startCamera;
+  $('toIntro').onclick = () => show('intro');
   $('beginCal').onclick = calibrate;
   $('recal').onclick = calibrate;
   $('startView').onclick = startViewing;
   $('newSession').onclick = () => location.reload();
-  $('openAnalyse').onclick = () => show('analyse');
-  $('anBack').onclick = () => show('setup');
+  $('openAnalyse').onclick = () => openAnalysis(false);
+  $('toAnalyse').onclick = () => openAnalysis(true);
+  $('anBack').onclick = () => show(anReturn);
   $('anRun').onclick = runAnalyse;
+  for (const id of ['anCsv', 'anMedia', 'anSession']) $(id).onchange = loadFromInputs;
+  $('aoiStim').onchange = () => selectStimulus($('aoiStim').value);
+  $('aoiShowFrame').onclick = () => { if (ed.stim) loadEditorBackground(parseFloat($('aoiFrame').value)); };
+  $('anAcc').oninput = renderAoiList;
+  $('aoiSave').onclick = saveAoiFile;
+  $('aoiLoad').onclick = () => $('aoiFile').click();
+  $('aoiFile').onchange = () => { const f = $('aoiFile').files[0]; if (f) loadAoiFile(f); $('aoiFile').value = ''; };
+  $('bgReplace').onclick = () => $('bgFile').click();
+  $('bgFile').onchange = () => { const f = $('bgFile').files[0]; if (f) replaceBackground(f); $('bgFile').value = ''; };
+  $('bgReset').onclick = async () => { if (!ed.stim) return; bgOverride.delete(ed.stim.name); updateBgControls(); await selectStimulus(ed.stim.name); };
+  async function downloadAll(listId) {
+    for (const a of $(listId).querySelectorAll('a')) { a.click(); await sleep(350); }
+  }
+  $('dlAllDone').onclick = () => downloadAll('links');
+  $('dlAllAn').onclick = () => downloadAll('anLinks');
+  $('aoiClear').onclick = () => { if (ed.stim) { aois.set(ed.stim.name, []); renderAoiList(); drawEditor(); } };
+
+  const canvas = $('aoiCanvas');
+  canvas.addEventListener('pointerdown', e => {
+    if (!ed.stim) return;
+    canvas.setPointerCapture(e.pointerId);
+    const p = stimPoint(e);
+    ed.drag = { x0: p.x, y0: p.y, x1: p.x, y1: p.y };
+    drawEditor();
+  });
+  canvas.addEventListener('pointermove', e => {
+    if (!ed.drag) return;
+    const p = stimPoint(e);
+    ed.drag.x1 = p.x; ed.drag.y1 = p.y;
+    drawEditor();
+  });
+  canvas.addEventListener('pointerup', () => {
+    if (!ed.drag) return;
+    const r = normRect(ed.drag);
+    ed.drag = null;
+    const minSide = Math.max(4, ed.stim.W / 200);
+    if (r.w >= minSide && r.h >= minSide) {
+      const list = aois.get(ed.stim.name);
+      list.push({ name: 'AOI ' + (list.length + 1), x: +r.x.toFixed(1), y: +r.y.toFixed(1),
+                  w: +r.w.toFixed(1), h: +r.h.toFixed(1), from: null, to: null });
+      renderAoiList();
+      const names = $('aoiList').querySelectorAll('input[type=text]');
+      if (names.length) { names[names.length - 1].focus(); names[names.length - 1].select(); }
+    }
+    drawEditor();
+  });
+  canvas.addEventListener('pointercancel', () => { ed.drag = null; drawEditor(); });
 })();
 </script>
 </body>
