@@ -260,7 +260,7 @@
       <label>Merge fixations closer than, in degrees<small>Leave empty to keep them separate.</small><input id="anMerge" type="number" min="0" step="any" value="3"></label>
       <label>Largest sample gap in ms<input id="anGap" type="number" min="10" step="any" value="150" required></label>
       <label>Heatmap smoothing in degrees<input id="anSigma" type="number" min="0.1" step="any" value="1.5" required></label>
-      <label>Time course bins in ms<small>Bin width for the table of looks to each area over time.</small><input id="anTc" type="number" min="20" step="any" value="100" required></label>
+      <label>Time course bins in ms<small>Bin width for the table of looks to each area over time.</small><input id="anTc" type="number" min="20" step="any" value="50" required></label>
       <label>Scanpath video trail in s<small>How long earlier fixations stay visible. Leave empty to keep the whole path on images and the last 2 seconds on videos.</small><input id="anTrail" type="number" min="0.2" step="any"></label>
       <label>Expected gaze accuracy in degrees<small>Filled in from session data when available. Areas narrower than twice this value get a warning.</small><input id="anAcc" type="number" min="0.1" step="any" value="4" required></label>
       <label>Video window start in s<small>Leave empty for the whole video.</small><input id="anStart" type="number" min="0" step="any"></label>
@@ -305,11 +305,11 @@
   const MAX_VIDEO_WIDTH = 1280;
   const TRAIL_MS = 600;
   // Analysis defaults used at the end of a session
-  const DEFAULT_ANALYSIS = { dispDeg: 3, minDur: 200, maxGap: 150, mergeDeg: 3, sigmaDeg: 1.5, scanVideo: true, trailSec: null, tcBinMs: 100, start: null, end: null, frameTime: null };
+  const DEFAULT_ANALYSIS = { dispDeg: 3, minDur: 200, maxGap: 150, mergeDeg: 3, sigmaDeg: 1.5, scanVideo: true, trailSec: null, tcBinMs: 50, start: null, end: null, frameTime: null };
   const MERGE_GAP_MS = 300;
   const SMOOTH_HALF_MS = 100;
   const OUTSIDE_MS = 60;
-  const VERSION = '2026-11-12 k';
+  const VERSION = '2026-11-12 l';
   const TC_COLS = ['participant','stimulus','aoi','bin_start_ms','n_samples','n_in_aoi','proportion'];
   const CONDITION_COLOURS = ['#F8766D','#00BFC4','#7CAE00','#C77CFF','#E69F00','#56B4E9'];
   const SCAN_COLOUR = '#1565c0';
