@@ -72,7 +72,7 @@
   .warn { color: var(--bad); }
   ol.steps { padding-left: 1.4em; margin: 0 0 16px; max-width: 62ch; }
   ol.steps li { margin: 0 0 12px; }
-  ol.steps strong { display: block; }
+  ol.steps li > strong:first-child { display: block; }
 
   #stage { position: fixed; inset: 0; z-index: 1000; background: var(--bg); }
   #hud { position: fixed; top: 12px; left: 0; right: 0; text-align: center; color: var(--muted); margin: 0 auto; }
@@ -141,6 +141,7 @@
   <h2>Combine several recordings</h2>
   <p class="muted">Make pooled heatmaps and scanpaths from gaze tables that you or others recorded earlier.</p>
   <div class="row"><button id="openAnalyse" class="secondary" type="button">Analyse saved recordings</button></div>
+  <p id="version" class="muted"></p>
 </section>
 
 <section id="camera" hidden>
@@ -299,6 +300,8 @@
   // Analysis defaults used at the end of a session
   const DEFAULT_ANALYSIS = { dispDeg: 3, minDur: 200, maxGap: 150, mergeDeg: 3, sigmaDeg: 1.5, scanVideo: true, trailSec: null, start: null, end: null, frameTime: null };
   const MERGE_GAP_MS = 300;
+  const SMOOTH_HALF_MS = 100;
+  const VERSION = '2026-11-12 d';
   const SCAN_COLOUR = '#1565c0';
   const SCAN_FILL = 'rgba(21, 101, 192, 0.85)';
   const MAX_PLOT_WIDTH = 1600;
@@ -667,7 +670,8 @@
       viewport_px: [window.innerWidth, window.innerHeight],
       viewing_distance_cm: g.dist, screen_width_cm: g.width,
       screen_px_per_deg: +g.pxPerDeg.toFixed(3), validation_limit_deg: g.limit,
-      validation_before: preVal, validation_after: postVal, errors
+      validation_before: preVal, validation_after: postVal, errors,
+      median_sample_interval_ms: sampleInterval(rows.map(normalise)), app_version: VERSION
     };
     addLink('links', pid + '_gaze.csv', csvBlob(rows, COLS));
     addLink('links', pid + '_session.json', new Blob([JSON.stringify(meta, null, 2)], { type: 'application/json' }));
@@ -675,6 +679,7 @@
 
     const fmt = v => v && v.mean_offset_deg !== null ? v.mean_offset_deg.toFixed(2) + ' degrees' : 'not available';
     let text = 'Mean validation offset was ' + fmt(preVal) + ' before viewing and ' + fmt(postVal) + ' after viewing.';
+    text += ' ' + rateText(rows.map(normalise));
     if (errors.length) text += ' Some stimuli could not be shown. ' + errors.join('. ') + '.';
     $('summary').textContent = text;
     show('done');
@@ -733,16 +738,18 @@
   }
 
   // Fixation detection for noisy webcam gaze, on time-sorted samples.
-  // 1. Each sample is replaced by the median of itself and its two neighbours on either side,
-  //    which removes single jumps.
+  // 1. Each sample is replaced by the median of itself and its neighbours within 100 ms,
+  //    at most two on either side, which removes single jumps without blurring time
+  //    when the tracker delivers few samples per second.
   // 2. A fixation grows while samples stay within radiusPx of its running centre.
   //    It ends when two samples in a row fall outside, or at a gap in the data.
   // 3. Fixations shorter than minDur are dropped.
   function detectFixations(s, radiusPx, minDur, maxGap) {
     const n = s.length, out = [];
     const med = (key, i) => {
-      const v = [];
-      for (let k = Math.max(0, i - 2); k <= Math.min(n - 1, i + 2); k++) v.push(s[k][key]);
+      const v = [s[i][key]];
+      for (let k = i - 1; k >= Math.max(0, i - 2) && s[i].t - s[k].t <= SMOOTH_HALF_MS; k--) v.push(s[k][key]);
+      for (let k = i + 1; k <= Math.min(n - 1, i + 2) && s[k].t - s[i].t <= SMOOTH_HALF_MS; k++) v.push(s[k][key]);
       v.sort((a, b) => a - b);
       return v[Math.floor(v.length / 2)];
     };
@@ -766,6 +773,22 @@
       } else i++;
     }
     return out;
+  }
+
+  // Median time between consecutive gaze samples of the same participant and stimulus, in ms
+  function sampleInterval(samples) {
+    const d = [];
+    for (const ss of groupBy(samples, s => s.participant + '\u0000' + s.stimulus).values()) {
+      const t = ss.map(s => s.t).sort((a, b) => a - b);
+      for (let i = 1; i < t.length; i++) d.push(t[i] - t[i - 1]);
+    }
+    return d.length ? median(d) : NaN;
+  }
+  function rateText(samples) {
+    const dt = sampleInterval(samples);
+    return Number.isFinite(dt) && dt > 0
+      ? 'The tracker delivered about ' + (1000 / dt).toFixed(0) + ' gaze samples per second, one every ' + Math.round(dt) + ' ms.'
+      : '';
   }
 
   // Joins consecutive fixations that lie close together, which webcam noise tends to split
@@ -1153,8 +1176,12 @@
       const pool = list.map(() => ({ hit: 0, tot: 0 }));
       for (const [p, ps] of groupBy(ss, s => s.participant)) {
         ps.sort((a, b) => a.t - b.t);
-        const fx = mergeFixations(detectFixations(ps, opt.dispDeg * ps[0].ppd, opt.minDur, opt.maxGap),
-                                  (opt.mergeDeg || 0) * ps[0].ppd, MERGE_GAP_MS);
+        // A gap counts as missing data only when it is clearly longer than this recording's sampling interval
+        const dts = [];
+        for (let q = 1; q < ps.length; q++) dts.push(ps[q].t - ps[q - 1].t);
+        const gap = Math.max(opt.maxGap, dts.length ? 3 * median(dts) : 0);
+        const fx = mergeFixations(detectFixations(ps, opt.dispDeg * ps[0].ppd, opt.minDur, gap),
+                                  (opt.mergeDeg || 0) * ps[0].ppd, Math.max(MERGE_GAP_MS, gap));
         for (const f of fx) f.aoiIdx = aoiIndex(f, list, type);
         fx.forEach((f, i) => fixRows.push({
           participant: p, stimulus: stim, fixation: i + 1,
@@ -1588,7 +1615,7 @@
       for (const o of res.outs) addLink('anLinks', o.name, o.blob);
       $('dlAllAn').hidden = !res.outs.length;
       const n = new Set(aState.samples.map(s => s.participant)).size;
-      $('anStatus').textContent = 'Done. ' + aState.samples.length + ' samples from ' + n + ' participant(s). ' + res.notes.join(' ');
+      $('anStatus').textContent = 'Done. ' + aState.samples.length + ' samples from ' + n + ' participant(s). ' + rateText(aState.samples) + ' ' + res.notes.join(' ');
     } catch (e) {
       $('anStatus').textContent = e && e.message ? e.message : 'The analysis failed.';
     }
@@ -1600,6 +1627,7 @@
   document.addEventListener('keydown', e => {
     if ((e.key === 's' || e.key === 'S') && skipNow) skipNow();
   });
+  $('version').textContent = 'Version ' + VERSION;
   $('startCam').onclick = startCamera;
   $('toIntro').onclick = () => show('intro');
   $('beginCal').onclick = calibrate;
