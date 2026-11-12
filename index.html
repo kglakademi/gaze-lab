@@ -124,6 +124,11 @@
       <small>They are shown in the order you select them. Press S during viewing to skip one.</small>
       <input id="files" type="file" accept="image/*,video/*" multiple required>
     </label>
+    <div id="setupAoi" hidden>
+      <h2>Areas of interest, optional</h2>
+      <p class="muted">Draw areas on your images now, or import an AOI table that was exported earlier for the same images. The areas are then counted automatically at the end of the session. You can also do this after the session.</p>
+      <div id="setupAoiSlot"></div>
+    </div>
     <div class="row"><button id="startCam" type="button">Start camera</button></div>
     <p id="camError" class="err" role="alert"></p>
   </form>
@@ -213,36 +218,41 @@
 
     <h2>Backgrounds and areas of interest</h2>
     <p id="aoiEmpty" class="muted">Load at least one gaze table to change backgrounds or draw areas of interest.</p>
-    <div id="aoiEditor" hidden>
-      <p>Choose a stimulus. To show the plots on your own version of the image, for example one where you marked the areas in Photoshop or Illustrator, click Replace background. It should have the same proportions as the original. To let the app count fixations in areas, drag on the image to draw rectangles. Where rectangles overlap, the one drawn later counts. Fixations outside every area are labelled none.</p>
-      <div class="row">
-        <select id="aoiStim" aria-label="Stimulus"></select>
-        <button id="bgReplace" class="secondary small" type="button">Replace background</button>
-        <button id="bgReset" class="secondary small" type="button" hidden>Use the original</button>
-        <input id="bgFile" type="file" accept="image/*" hidden>
-        <span id="aoiFrameBox" class="inline" hidden>
-          <input id="aoiFrame" type="number" min="0" step="any" aria-label="Video frame in seconds">
-          <button id="aoiShowFrame" class="secondary small" type="button">Show video frame at this second</button>
-        </span>
-      </div>
-      <p id="bgNote" class="muted" hidden></p>
-      <canvas id="aoiCanvas" width="16" height="9"></canvas>
-      <div id="aoiList"></div>
-      <div class="row">
-        <button id="aoiSave" class="secondary small" type="button">Save AOI file</button>
-        <button id="aoiLoad" class="secondary small" type="button">Load AOI file</button>
-        <button id="aoiClear" class="secondary small" type="button">Remove all areas on this stimulus</button>
-        <input id="aoiFile" type="file" accept=".json,application/json" hidden>
+    <p id="anBgHelp" hidden>To show the plots on your own version of an image, for example one where you marked the areas in Photoshop or Illustrator, choose the stimulus and click Replace background. It should have the same proportions as the original.</p>
+    <div id="anAoiSlot">
+      <div id="aoiEditor" hidden>
+        <p>Choose a stimulus and drag on the image to draw a rectangle, then give it a name. Where rectangles overlap, the one drawn later counts. Fixations outside every area are labelled none. Export the areas as a table to reuse them whenever the same image is used.</p>
+        <div class="row">
+          <select id="aoiStim" aria-label="Stimulus"></select>
+          <button id="bgReplace" class="secondary small" type="button">Replace background</button>
+          <button id="bgReset" class="secondary small" type="button" hidden>Use the original</button>
+          <input id="bgFile" type="file" accept="image/*" hidden>
+          <span id="aoiFrameBox" class="inline" hidden>
+            <input id="aoiFrame" type="number" min="0" step="any" aria-label="Video frame in seconds">
+            <button id="aoiShowFrame" class="secondary small" type="button">Show video frame at this second</button>
+          </span>
+        </div>
+        <p id="bgNote" class="muted" hidden></p>
+        <canvas id="aoiCanvas" width="16" height="9"></canvas>
+        <div id="aoiList"></div>
+        <div class="row">
+          <button id="aoiSave" class="secondary small" type="button">Export AOI table</button>
+          <button id="aoiLoad" class="secondary small" type="button">Import AOI table</button>
+          <button id="aoiClear" class="secondary small" type="button">Remove all areas on this stimulus</button>
+          <input id="aoiFile" type="file" accept=".csv,text/csv" hidden>
+        </div>
+        <p id="aoiStatus" class="muted" role="status"></p>
       </div>
     </div>
 
     <h2>Settings</h2>
     <div class="grid">
-      <label>Fixation dispersion in degrees<input id="anDisp" type="number" min="0.1" step="any" value="2.5" required></label>
-      <label>Minimum fixation in ms<input id="anMin" type="number" min="10" step="any" value="100" required></label>
+      <label>Fixation radius in degrees<small>Gaze must stay this close to the fixation centre. Larger values give fewer, longer fixations.</small><input id="anDisp" type="number" min="0.1" step="any" value="3" required></label>
+      <label>Minimum fixation in ms<input id="anMin" type="number" min="10" step="any" value="200" required></label>
+      <label>Merge fixations closer than, in degrees<small>Leave empty to keep them separate.</small><input id="anMerge" type="number" min="0" step="any" value="3"></label>
       <label>Largest sample gap in ms<input id="anGap" type="number" min="10" step="any" value="150" required></label>
       <label>Heatmap smoothing in degrees<input id="anSigma" type="number" min="0.1" step="any" value="1.5" required></label>
-      <label>Scanpath time bins in seconds<small>One extra scanpath per bin. Leave empty to skip.</small><input id="anBin" type="number" min="0.1" step="any" value="1"></label>
+      <label>Scanpath video time bins in ms<small>Leave empty to skip the videos. Making a video takes as long as the stimulus lasted.</small><input id="anVidBin" type="number" min="50" step="any" value="500"></label>
       <label>Expected gaze accuracy in degrees<small>Filled in from session data when available. Areas narrower than twice this value get a warning.</small><input id="anAcc" type="number" min="0.1" step="any" value="4" required></label>
       <label>Video window start in s<small>Leave empty for the whole video.</small><input id="anStart" type="number" min="0" step="any"></label>
       <label>Video window end in s<small>Leave empty for the whole video.</small><input id="anEnd" type="number" min="0" step="any"></label>
@@ -281,8 +291,10 @@
   const MAX_VIDEO_WIDTH = 1280;
   const TRAIL_MS = 600;
   // Analysis defaults used at the end of a session
-  const DEFAULT_ANALYSIS = { dispDeg: 2.5, minDur: 100, maxGap: 150, sigmaDeg: 1.5, binSec: 1, start: null, end: null, frameTime: null };
-  const MAX_BINS = 600;
+  const DEFAULT_ANALYSIS = { dispDeg: 3, minDur: 200, maxGap: 150, mergeDeg: 3, sigmaDeg: 1.5, videoBinMs: 500, start: null, end: null, frameTime: null };
+  const MERGE_GAP_MS = 300;
+  const SCAN_COLOUR = '#1565c0';
+  const SCAN_FILL = 'rgba(21, 101, 192, 0.85)';
   const MAX_PLOT_WIDTH = 1600;
   const HEAT_GRID_WIDTH = 400;
 
@@ -292,6 +304,7 @@
                     'x_stim','y_stim','n_samples'];
   const AOI_COLS = ['participant','stimulus','aoi','fixation_count','dwell_ms','dwell_share',
                     'time_to_first_fixation_ms','visits'];
+  const AOI_FILE_COLS = ['stimulus','aoi','x','y','width','height','stim_w','stim_h','from_s','to_s'];
   const AOI_COLOURS = ['#e6194b','#3cb44b','#4363d8','#f58231','#911eb4','#0fa3b1','#f032e6','#808000'];
 
   let latest = null, collecting = null, current = null, skipNow = null;
@@ -299,10 +312,10 @@
   const rows = [], outputs = [], errors = [];
   let sessionFiles = [];
   // Analysis page state
-  const aState = { samples: [], media: new Map(), stimuli: new Map(), prefix: 'pooled_' };
+  const aState = { samples: [], media: new Map(), prefix: 'pooled_' };
   const aois = new Map();   // stimulus file name -> [{ name, x, y, w, h, from, to }] in stimulus pixels
   const bgOverride = new Map();   // stimulus file name -> replacement background image file
-  const ed = { stim: null, bg: null, drag: null, k: 1 };
+  const ed = { mode: 'analysis', stimuli: new Map(), media: new Map(), stim: null, bg: null, drag: null, k: 1 };
   let anReturn = 'setup';
 
   const sections = ['setup', 'camera', 'intro', 'stage', 'result', 'show', 'done', 'analyse'];
@@ -660,10 +673,11 @@
     $('summary').textContent = text;
     show('done');
 
-    $('doneStatus').textContent = 'Making heatmaps and scanpaths…';
+    $('doneStatus').textContent = 'Making heatmaps and scanpaths. The files so far can already be downloaded.';
     try {
       const media = new Map(files.map(f => [f.name, f]));
-      const res = await analyse(rows.map(normalise), media, DEFAULT_ANALYSIS, pid + '_');
+      const res = await analyse(rows.map(normalise), media, DEFAULT_ANALYSIS, pid + '_', aois, null,
+                                msg => { $('doneStatus').textContent = msg; });
       for (const o of res.outs) addLink('links', o.name, o.blob);
       $('doneStatus').textContent = res.notes.join(' ');
     } catch (e) {
@@ -681,7 +695,7 @@
     };
   }
 
-  function parseCSV(text) {
+  function parseCSV(text, delim = ',') {
     const out = [];
     let row = [], field = '', q = false;
     for (let i = 0; i < text.length; i++) {
@@ -690,7 +704,7 @@
         if (c === '"') { if (text[i + 1] === '"') { field += '"'; i++; } else q = false; }
         else field += c;
       } else if (c === '"') q = true;
-      else if (c === ',') { row.push(field); field = ''; }
+      else if (c === delim) { row.push(field); field = ''; }
       else if (c === '\n' || c === '\r') {
         if (c === '\r' && text[i + 1] === '\n') i++;
         row.push(field); out.push(row); row = []; field = '';
@@ -712,32 +726,56 @@
     return n % 2 ? s[(n - 1) / 2] : (s[n / 2 - 1] + s[n / 2]) / 2;
   }
 
-  // Dispersion-threshold (I-DT) fixation detection on time-sorted samples
-  function detectFixations(s, dispPx, minDur, maxGap) {
-    const out = [];
-    const n = s.length;
-    const disp = (a, b) => {
-      let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
-      for (let k = a; k < b; k++) {
-        const p = s[k];
-        if (p.x < x0) x0 = p.x; if (p.x > x1) x1 = p.x;
-        if (p.y < y0) y0 = p.y; if (p.y > y1) y1 = p.y;
-      }
-      return (x1 - x0) + (y1 - y0);
+  // Fixation detection for noisy webcam gaze, on time-sorted samples.
+  // 1. Each sample is replaced by the median of itself and its two neighbours on either side,
+  //    which removes single jumps.
+  // 2. A fixation grows while samples stay within radiusPx of its running centre.
+  //    It ends when two samples in a row fall outside, or at a gap in the data.
+  // 3. Fixations shorter than minDur are dropped.
+  function detectFixations(s, radiusPx, minDur, maxGap) {
+    const n = s.length, out = [];
+    const med = (key, i) => {
+      const v = [];
+      for (let k = Math.max(0, i - 2); k <= Math.min(n - 1, i + 2); k++) v.push(s[k][key]);
+      v.sort((a, b) => a - b);
+      return v[Math.floor(v.length / 2)];
     };
-    const gapsOk = (a, b) => { for (let k = a + 1; k <= b; k++) if (s[k].t - s[k - 1].t > maxGap) return false; return true; };
+    const sx = new Float64Array(n), sy = new Float64Array(n);
+    for (let i = 0; i < n; i++) { sx[i] = med('x', i); sy[i] = med('y', i); }
     let i = 0;
     while (i < n) {
-      let j = i;
-      while (j < n && s[j].t - s[i].t < minDur) j++;
-      if (j >= n) break;
-      if (!gapsOk(i, j) || disp(i, j + 1) > dispPx) { i++; continue; }
-      while (j + 1 < n && s[j + 1].t - s[j].t <= maxGap && disp(i, j + 2) <= dispPx) j++;
-      let sx = 0, sy = 0;
-      for (let k = i; k <= j; k++) { sx += s[k].x; sy += s[k].y; }
-      const m = j - i + 1;
-      out.push({ x: sx / m, y: sy / m, start: s[i].t, end: s[j].t, dur: s[j].t - s[i].t, mt: s[i].mt, n: m });
-      i = j + 1;
+      let cx = sx[i], cy = sy[i], m = 1, last = i, outside = 0;
+      for (let j = i + 1; j < n; j++) {
+        if (s[j].t - s[j - 1].t > maxGap) break;
+        if (Math.hypot(sx[j] - cx, sy[j] - cy) <= radiusPx) {
+          cx = (cx * m + sx[j]) / (m + 1);
+          cy = (cy * m + sy[j]) / (m + 1);
+          m++; last = j; outside = 0;
+        } else if (++outside >= 2) break;
+      }
+      const dur = s[last].t - s[i].t;
+      if (dur >= minDur) {
+        out.push({ x: cx, y: cy, start: s[i].t, end: s[last].t, dur, mt: s[i].mt, n: m });
+        i = last + 1;
+      } else i++;
+    }
+    return out;
+  }
+
+  // Joins consecutive fixations that lie close together, which webcam noise tends to split
+  function mergeFixations(fx, distPx, gapMs) {
+    if (!(distPx > 0)) return fx;
+    const out = [];
+    for (const f of fx) {
+      const p = out[out.length - 1];
+      if (p && f.start - p.end <= gapMs && Math.hypot(f.x - p.x, f.y - p.y) <= distPx) {
+        const n = p.n + f.n;
+        p.x = (p.x * p.n + f.x * f.n) / n;
+        p.y = (p.y * p.n + f.y * f.n) / n;
+        p.end = f.end;
+        p.dur = p.end - p.start;
+        p.n = n;
+      } else out.push(Object.assign({}, f));
     }
     return out;
   }
@@ -861,49 +899,141 @@
     return c;
   }
 
-  function renderScanpath(bg, aw, ah, k, fix, o = {}) {
-    const { c, ctx } = baseCanvas(bg, aw, ah);
+  // One scanpath layer in a single colour. Used by the still image and by every video frame.
+  function drawScan(ctx, fix, k, unit, o = {}) {
     const pts = fix.map(f => ({ x: f.x * k, y: f.y * k, d: f.dur }));
+    if (!pts.length) return;
     const numbers = o.numbers || pts.map((p, i) => i + 1);
     const maxD = o.maxDur || Math.max(...pts.map(p => p.d), 1);
-    const unit = Math.max(aw, ah) / 100;
-    ctx.lineJoin = 'round';
-    if (pts.length > 1) {
-      for (const [col, lw] of [['rgba(255,255,255,0.85)', unit * 0.5], ['rgba(0,0,0,0.85)', unit * 0.2]]) {
+    const grow = o.grow === undefined ? 1 : o.grow;
+    ctx.save();
+    ctx.globalAlpha = o.alpha === undefined ? 1 : o.alpha;
+    ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+    const path = o.linkFrom ? [{ x: o.linkFrom.x * k, y: o.linkFrom.y * k }].concat(pts) : pts;
+    if (path.length > 1) {
+      for (const [col, lw] of [['rgba(255,255,255,0.9)', unit * 0.6], [SCAN_COLOUR, unit * 0.3]]) {
         ctx.strokeStyle = col; ctx.lineWidth = lw;
         ctx.beginPath();
-        pts.forEach((p, i) => (i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y)));
+        path.forEach((p, i) => (i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y)));
         ctx.stroke();
       }
     }
+    ctx.font = '600 ' + Math.max(10, Math.round(unit * 1.1)) + 'px system-ui, sans-serif';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
     pts.forEach((p, i) => {
-      const r = unit * (0.8 + 2.2 * Math.sqrt(Math.min(1, p.d / maxD)));
-      const hue = pts.length > 1 ? 260 - 200 * i / (pts.length - 1) : 200;
-      ctx.fillStyle = 'hsla(' + hue + ', 70%, 45%, 0.85)';
+      const r = unit * (0.9 + 2.2 * Math.sqrt(Math.min(1, p.d / maxD))) * grow;
+      ctx.fillStyle = SCAN_FILL;
       ctx.strokeStyle = '#ffffff';
       ctx.lineWidth = Math.max(1, unit * 0.15);
       ctx.beginPath(); ctx.arc(p.x, p.y, r, 0, 2 * Math.PI); ctx.fill(); ctx.stroke();
       ctx.fillStyle = '#ffffff';
-      ctx.font = '600 ' + Math.max(10, Math.round(unit * 1.1)) + 'px system-ui, sans-serif';
-      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
       ctx.fillText(String(numbers[i]), p.x, p.y);
     });
-    if (o.label) {
-      const text = pts.length ? o.label : o.label + ', no fixations';
-      const fh = Math.max(12, Math.round(unit * 1.8));
-      ctx.font = '600 ' + fh + 'px system-ui, sans-serif';
-      const tw = ctx.measureText(text).width;
-      ctx.fillStyle = 'rgba(0,0,0,0.7)';
-      ctx.fillRect(unit, unit, tw + fh, fh * 1.6);
-      ctx.fillStyle = '#ffffff';
-      ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
-      ctx.fillText(text, unit + fh / 2, unit + fh * 0.8);
-    }
+    ctx.restore();
+  }
+
+  function drawLabel(ctx, unit, text) {
+    const fh = Math.max(12, Math.round(unit * 1.8));
+    ctx.font = '600 ' + fh + 'px system-ui, sans-serif';
+    const tw = ctx.measureText(text).width;
+    ctx.fillStyle = 'rgba(0,0,0,0.7)';
+    ctx.fillRect(unit, unit, tw + fh, fh * 1.6);
+    ctx.fillStyle = '#ffffff';
+    ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+    ctx.fillText(text, unit + fh / 2, unit + fh * 0.8);
+  }
+
+  function renderScanpath(bg, aw, ah, k, fix) {
+    const { c, ctx } = baseCanvas(bg, aw, ah);
+    drawScan(ctx, fix, k, Math.max(aw, ah) / 100);
     return c;
   }
 
-  const fmtSec = v => String(+v.toFixed(2));
-  const padSec = v => { const [i, d] = fmtSec(v).split('.'); return i.padStart(3, '0') + (d ? 'p' + d : ''); };
+  // Animated scanpath. Time is cut into bins, each bin shows the fixations that start in it,
+  // and consecutive bins cross-fade. The video is recorded in real time.
+  async function recordScanpathVideo(staticBg, videoFile, type, W, H, fx, lo, hi, binMs) {
+    const mime = pickMime();
+    const cs = Math.min(1, MAX_VIDEO_WIDTH / W);
+    const cw = Math.max(2, Math.round(W * cs / 2) * 2), ch = Math.max(2, Math.round(H * cs / 2) * 2);
+    const canvas = document.createElement('canvas');
+    canvas.width = cw; canvas.height = ch;
+    if (mime === null || !canvas.captureStream) return null;
+    const ctx = canvas.getContext('2d');
+    const unit = Math.max(cw, ch) / 100;
+    const bw = binMs / 1000;
+    const tOf = f => (type === 'video' ? f.mt : f.start / 1000);
+    const bins = new Map();
+    fx.forEach((f, i) => {
+      const b = Math.floor(tOf(f) / bw);
+      if (!bins.has(b)) bins.set(b, []);
+      bins.get(b).push(i);
+    });
+    const maxDur = Math.max(...fx.map(f => f.dur), 1);
+    const fade = Math.min(0.18, bw * 0.4);
+    const ease = x => 1 - Math.pow(1 - x, 3);
+    const start = type === 'video' ? lo : 0;
+    const end = Math.max(start + bw, hi);
+
+    let video = null, url = null;
+    if (videoFile) {
+      url = URL.createObjectURL(videoFile);
+      try {
+        video = document.createElement('video');
+        video.muted = true; video.playsInline = true; video.preload = 'auto';
+        const loaded = once(video, 'loadeddata');
+        video.src = url;
+        await withTimeout(loaded, 15000);
+        const seeked = once(video, 'seeked');
+        video.currentTime = Math.max(0.001, start);
+        await withTimeout(seeked, 15000);
+      } catch (e) { video = null; }
+    }
+
+    const draw = T => {
+      if (video) ctx.drawImage(video, 0, 0, cw, ch);
+      else if (staticBg) ctx.drawImage(staticBg, 0, 0, cw, ch);
+      else { ctx.fillStyle = '#808080'; ctx.fillRect(0, 0, cw, ch); }
+      const b = Math.floor(T / bw);
+      const aIn = Math.min(1, Math.max(0, (T - b * bw) / fade));
+      const cur = bins.get(b) || [], prev = bins.get(b - 1) || [];
+      if (aIn < 1 && prev.length) {
+        drawScan(ctx, prev.map(i => fx[i]), cs, unit, { numbers: prev.map(i => i + 1), maxDur, alpha: 1 - aIn });
+      }
+      if (cur.length) {
+        drawScan(ctx, cur.map(i => fx[i]), cs, unit, {
+          numbers: cur.map(i => i + 1), maxDur, alpha: aIn, grow: 0.6 + 0.4 * ease(aIn),
+          linkFrom: prev.length ? fx[prev[prev.length - 1]] : null
+        });
+      }
+      drawLabel(ctx, unit, (b * bw).toFixed(1) + ' to ' + ((b + 1) * bw).toFixed(1) + ' s');
+    };
+
+    const rec = new MediaRecorder(canvas.captureStream(30), mime ? { mimeType: mime, videoBitsPerSecond: 6e6 } : {});
+    const chunks = [];
+    rec.ondataavailable = e => { if (e.data && e.data.size) chunks.push(e.data); };
+    const stopped = new Promise(r => { rec.onstop = r; });
+    draw(start);
+    rec.start(1000);
+    if (video) { try { await video.play(); } catch (e) { video = null; } }
+    const t0 = performance.now();
+    await new Promise(resolve => {
+      const step = () => {
+        const wall = (performance.now() - t0) / 1000;
+        const T = video ? video.currentTime : start + wall;
+        draw(Math.min(T, end - 0.001));
+        if (T >= end || (video && video.ended) || wall > (end - start) + 5) resolve();
+        else setTimeout(step, 33);
+      };
+      step();
+    });
+    await sleep(200);
+    if (video) video.pause();
+    rec.stop();
+    await stopped;
+    if (url) URL.revokeObjectURL(url);
+    const type2 = rec.mimeType || mime || 'video/webm';
+    return { blob: new Blob(chunks, { type: type2 }), ext: type2.includes('mp4') ? 'mp4' : 'webm' };
+  }
 
   const toBlob = c => new Promise(r => c.toBlob(r, 'image/png'));
   const tick = () => new Promise(r => setTimeout(r, 0));
@@ -947,8 +1077,9 @@
     return c;
   }
 
-  async function analyse(samples, media, opt, prefix, aoiMap = null, overrides = null) {
+  async function analyse(samples, media, opt, prefix, aoiMap = null, overrides = null, onStatus = null) {
     const outs = [], notes = [], fixRows = [], aoiRows = [];
+    let videoProblem = false;
     const useAoi = !!aoiMap && Array.from(aoiMap.values()).some(l => l.length);
     for (const [stim, all] of groupBy(samples, s => s.stimulus)) {
       await tick();
@@ -969,6 +1100,7 @@
         bg = await loadBackground(ov, 'image', 0);
         if (!bg) notes.push('The replacement background ' + ov.name + ' could not be read, so the original was used.');
       }
+      const usedOverride = !!bg;
       if (!bg) bg = await loadBackground(file, type, frameT);
       if (!bg) notes.push(stim + (file ? ' could not be read, so a grey background was used.' : ' was not among the selected media, so a grey background was used.'));
 
@@ -982,7 +1114,8 @@
       const pool = list.map(() => ({ hit: 0, tot: 0 }));
       for (const [p, ps] of groupBy(ss, s => s.participant)) {
         ps.sort((a, b) => a.t - b.t);
-        const fx = detectFixations(ps, opt.dispDeg * ps[0].ppd, opt.minDur, opt.maxGap);
+        const fx = mergeFixations(detectFixations(ps, opt.dispDeg * ps[0].ppd, opt.minDur, opt.maxGap),
+                                  (opt.mergeDeg || 0) * ps[0].ppd, MERGE_GAP_MS);
         for (const f of fx) f.aoiIdx = aoiIndex(f, list, type);
         fx.forEach((f, i) => fixRows.push({
           participant: p, stimulus: stim, fixation: i + 1,
@@ -1015,28 +1148,20 @@
         } else {
           notes.push(p + ' had no fixations on ' + stim + ' with these settings.');
         }
-        if (opt.binSec && fx.length) {
-          // One scanpath per time bin. A fixation belongs to the bin in which it starts.
-          const bw = opt.binSec;
-          const tOf = f => (type === 'video' ? f.mt : f.start / 1000);
+        if (opt.videoBinMs && fx.length && !videoProblem) {
+          if (onStatus) onStatus('Recording the scanpath video for ' + p + ' on ' + stim + '. This takes as long as the stimulus lasted.');
           let lo = 0, hi = ps[ps.length - 1].t / 1000;
           if (type === 'video') {
             lo = Infinity; hi = -Infinity;
             for (const q of ps) { if (q.mt < lo) lo = q.mt; if (q.mt > hi) hi = q.mt; }
           }
-          const b0 = Math.floor(lo / bw), b1 = Math.floor(hi / bw);
-          const last = Math.min(b1, b0 + MAX_BINS - 1);
-          if (last < b1) notes.push('Only the first ' + MAX_BINS + ' time bins were drawn for ' + p + ' on ' + stim + '.');
-          const maxDur = Math.max(...fx.map(f => f.dur), 1);
-          for (let b = b0; b <= last; b++) {
-            const a = b * bw, z = (b + 1) * bw;
-            const idx = [];
-            fx.forEach((f, i) => { const tt = tOf(f); if (tt >= a && tt < z) idx.push(i); });
-            const sc = renderScanpath(bg, aw, ah, k, idx.map(i => fx[i]), {
-              numbers: idx.map(i => i + 1), maxDur, label: fmtSec(a) + ' to ' + fmtSec(z) + ' s'
-            });
-            outs.push({ name: safe(p) + '_' + stem(stim) + '_scanpath_' + padSec(a) + '-' + padSec(z) + 's.png', blob: await toBlob(sc) });
-            if (b % 10 === 9) await tick();
+          try {
+            const videoFile = type === 'video' && file && !usedOverride ? file : null;
+            const v = await recordScanpathVideo(bg, videoFile, type, W, H, fx, lo, hi, opt.videoBinMs);
+            if (v) outs.push({ name: safe(p) + '_' + stem(stim) + '_scanpath_video.' + v.ext, blob: v.blob });
+            else { videoProblem = true; notes.push('This browser cannot record video, so no scanpath videos were made.'); }
+          } catch (e) {
+            notes.push('The scanpath video for ' + p + ' on ' + stim + ' could not be made.');
           }
         }
       }
@@ -1054,29 +1179,87 @@
 
   /* ---------- Areas of interest editor ---------- */
 
-  function setAnalysisData(samples, media, accuracy) {
-    aState.samples = samples;
-    aState.media = media;
-    aState.stimuli = new Map();
-    for (const [name, ss] of groupBy(samples, s => s.stimulus)) {
-      let lo = Infinity, hi = -Infinity;
-      for (const s of ss) { if (s.mt < lo) lo = s.mt; if (s.mt > hi) hi = s.mt; }
-      aState.stimuli.set(name, { name, type: ss[0].type, W: ss[0].w, H: ss[0].h, ppd: median(ss.map(s => s.ppd)), lo, hi });
-    }
-    if (Number.isFinite(accuracy)) $('anAcc').value = accuracy.toFixed(2);
+  // The editor is one block of the page. It sits on the start page while stimuli are chosen
+  // and moves to the analysis page when recordings are analysed. Areas are kept per file name.
+  function setEditor(mode, stimuli, media) {
+    ed.mode = mode;
+    ed.stimuli = stimuli;
+    ed.media = media;
+    $(mode === 'setup' ? 'setupAoiSlot' : 'anAoiSlot').append($('aoiEditor'));
+    $('bgReplace').hidden = mode === 'setup';
+    $('aoiStatus').textContent = '';
     const sel = $('aoiStim');
     const keep = sel.value;
     sel.textContent = '';
-    for (const name of aState.stimuli.keys()) {
+    for (const name of stimuli.keys()) {
       const o = document.createElement('option');
       o.value = name; o.textContent = name;
       sel.append(o);
     }
-    if (aState.stimuli.has(keep)) sel.value = keep;
-    const any = aState.stimuli.size > 0;
+    if (stimuli.has(keep)) sel.value = keep;
+    const any = stimuli.size > 0;
     $('aoiEditor').hidden = !any;
-    $('aoiEmpty').hidden = any;
+    if (mode === 'setup') $('setupAoi').hidden = !any;
+    else { $('aoiEmpty').hidden = any; $('anBgHelp').hidden = !any; }
     if (any) selectStimulus(sel.value);
+    else ed.stim = null;
+  }
+
+  async function stimulusInfo(file) {
+    const url = URL.createObjectURL(file);
+    try {
+      if (file.type.startsWith('video/')) {
+        const v = document.createElement('video');
+        v.preload = 'metadata';
+        const loaded = once(v, 'loadedmetadata');
+        v.src = url;
+        await withTimeout(loaded, 15000);
+        return { name: file.name, type: 'video', W: v.videoWidth, H: v.videoHeight, ppd: NaN, lo: 0, hi: v.duration || 0 };
+      }
+      const img = new Image();
+      img.src = url;
+      await img.decode();
+      return { name: file.name, type: 'image', W: img.naturalWidth, H: img.naturalHeight, ppd: NaN, lo: 0, hi: 0 };
+    } catch (e) {
+      return null;
+    } finally {
+      URL.revokeObjectURL(url);
+    }
+  }
+
+  let setupToken = 0;
+  async function refreshSetupEditor() {
+    const token = ++setupToken;
+    const files = Array.from($('files').files);
+    const stimuli = new Map();
+    for (const f of files) {
+      const info = await stimulusInfo(f);
+      if (info && info.W && info.H) stimuli.set(f.name, info);
+    }
+    if (token !== setupToken) return;
+    setEditor('setup', stimuli, new Map(files.map(f => [f.name, f])));
+  }
+
+  // Before a session the size of an area in degrees is estimated from the setup fields,
+  // assuming the stimulus will fill the screen as far as its proportions allow.
+  function editorPpd(st) {
+    if (ed.mode !== 'setup') return st.ppd;
+    const g = geometry();
+    if (!Number.isFinite(g.pxPerDeg)) return NaN;
+    return g.pxPerDeg / Math.min(window.screen.width / st.W, window.screen.height / st.H);
+  }
+
+  function setAnalysisData(samples, media, accuracy) {
+    aState.samples = samples;
+    aState.media = media;
+    const stimuli = new Map();
+    for (const [name, ss] of groupBy(samples, s => s.stimulus)) {
+      let lo = Infinity, hi = -Infinity;
+      for (const s of ss) { if (s.mt < lo) lo = s.mt; if (s.mt > hi) hi = s.mt; }
+      stimuli.set(name, { name, type: ss[0].type, W: ss[0].w, H: ss[0].h, ppd: median(ss.map(s => s.ppd)), lo, hi });
+    }
+    if (Number.isFinite(accuracy)) $('anAcc').value = accuracy.toFixed(2);
+    setEditor('analysis', stimuli, media);
   }
 
   async function loadFromInputs() {
@@ -1108,16 +1291,15 @@
   }
 
   async function selectStimulus(name) {
-    const st = aState.stimuli.get(name);
+    const st = ed.stimuli.get(name);
     if (!st) return;
     ed.stim = st;
     ed.drag = null;
     if (!aois.has(name)) aois.set(name, []);
-    const isVideo = st.type === 'video';
-    if (isVideo) $('aoiFrame').value = ((st.lo + st.hi) / 2).toFixed(1);
+    if (st.type === 'video') $('aoiFrame').value = ((st.lo + st.hi) / 2).toFixed(1);
     updateBgControls();
     renderAoiList();
-    await loadEditorBackground(isVideo ? parseFloat($('aoiFrame').value) : 0);
+    await loadEditorBackground(st.type === 'video' ? parseFloat($('aoiFrame').value) : 0);
   }
 
   async function loadEditorBackground(t) {
@@ -1128,16 +1310,16 @@
     c.height = Math.max(1, Math.round(st.H * ed.k));
     ed.bg = null;
     drawEditor();
-    const ov = bgOverride.get(st.name);
+    const ov = ed.mode === 'analysis' ? bgOverride.get(st.name) : null;
     let bg = ov ? await loadBackground(ov, 'image', 0) : null;
-    if (!bg) bg = await loadBackground(aState.media.get(st.name), st.type, Number.isFinite(t) ? t : 0);
+    if (!bg) bg = await loadBackground(ed.media.get(st.name), st.type, Number.isFinite(t) ? t : 0);
     if (ed.stim === st) { ed.bg = bg; drawEditor(); }
   }
 
   function updateBgControls() {
     const st = ed.stim;
     if (!st) return;
-    const ov = bgOverride.get(st.name);
+    const ov = ed.mode === 'analysis' ? bgOverride.get(st.name) : null;
     $('bgReset').hidden = !ov;
     $('aoiFrameBox').hidden = st.type !== 'video' || !!ov;
     const note = $('bgNote');
@@ -1149,7 +1331,7 @@
     const st = ed.stim;
     if (!st || !file) return;
     const c = await loadBackground(file, 'image', 0);
-    if (!c) { $('anStatus').textContent = file.name + ' could not be read as an image.'; return; }
+    if (!c) { $('aoiStatus').textContent = file.name + ' could not be read as an image.'; return; }
     const r1 = c.width / c.height, r0 = st.W / st.H;
     file.warn = Math.abs(r1 / r0 - 1) > 0.02
       ? 'Its proportions differ from the original, so it is stretched to fit. Gaze positions and areas still follow the original image.'
@@ -1193,7 +1375,11 @@
     };
   }
 
-  function numOrNull(v) { v = String(v).trim(); const n = parseFloat(v); return v === '' || !Number.isFinite(n) ? null : n; }
+  function numOrNull(v) {
+    v = String(v === null || v === undefined ? '' : v).trim().replace(',', '.');
+    const n = parseFloat(v);
+    return v === '' || !Number.isFinite(n) ? null : n;
+  }
 
   function renderAoiList() {
     const box = $('aoiList');
@@ -1208,7 +1394,8 @@
       box.append(p);
       return;
     }
-    const acc = parseFloat($('anAcc').value);
+    const ppd = editorPpd(st);
+    const acc = parseFloat($(ed.mode === 'setup' ? 'limit' : 'anAcc').value);
     list.forEach((a, i) => {
       const row = document.createElement('div');
       row.className = 'aoi-row';
@@ -1235,16 +1422,23 @@
         win.append('Active from', from, 'to', to, 's');
         row.append(win);
       }
-      const wd = a.w / st.ppd, hd = a.h / st.ppd;
       const size = document.createElement('span');
       size.className = 'muted';
-      size.textContent = wd.toFixed(1) + ' by ' + hd.toFixed(1) + ' degrees';
-      row.append(size);
-      if (Number.isFinite(acc) && Math.min(wd, hd) < 2 * acc) {
-        const w = document.createElement('span');
-        w.className = 'warn';
-        w.textContent = 'Narrower than twice the expected accuracy, so results for this area are unreliable.';
-        row.append(w);
+      if (Number.isFinite(ppd)) {
+        const wd = a.w / ppd, hd = a.h / ppd;
+        size.textContent = (ed.mode === 'setup' ? 'about ' : '') + wd.toFixed(1) + ' by ' + hd.toFixed(1) + ' degrees';
+        row.append(size);
+        if (Number.isFinite(acc) && Math.min(wd, hd) < 2 * acc) {
+          const w = document.createElement('span');
+          w.className = 'warn';
+          w.textContent = ed.mode === 'setup'
+            ? 'Narrower than twice the acceptable offset, so results for this area are unreliable.'
+            : 'Narrower than twice the expected accuracy, so results for this area are unreliable.';
+          row.append(w);
+        }
+      } else {
+        size.textContent = Math.round(a.w) + ' by ' + Math.round(a.h) + ' px';
+        row.append(size);
       }
       const del = document.createElement('button');
       del.type = 'button';
@@ -1256,43 +1450,64 @@
     });
   }
 
-  function saveAoiFile() {
-    const out = { app: 'gaze-lab', version: 1, stimuli: {} };
+  // AOI table. One row per area, coordinates in pixels of the original image, origin top left.
+  function exportAois() {
+    const out = [];
     for (const [name, list] of aois) {
-      if (!list.length) continue;
-      const st = aState.stimuli.get(name);
-      out.stimuli[name] = { stim_w: st ? st.W : null, stim_h: st ? st.H : null, aois: list };
+      const st = ed.stimuli.get(name);
+      for (const a of list) {
+        out.push({
+          stimulus: name, aoi: a.name, x: a.x, y: a.y, width: a.w, height: a.h,
+          stim_w: st ? st.W : '', stim_h: st ? st.H : '',
+          from_s: a.from === null ? '' : a.from, to_s: a.to === null ? '' : a.to
+        });
+      }
     }
+    if (!out.length) { $('aoiStatus').textContent = 'There are no areas to export yet.'; return; }
     const a = document.createElement('a');
-    a.href = URL.createObjectURL(new Blob([JSON.stringify(out, null, 2)], { type: 'application/json' }));
-    a.download = 'aois.json';
+    a.href = URL.createObjectURL(csvBlob(out, AOI_FILE_COLS));
+    a.download = 'aois.csv';
     a.click();
     setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+    $('aoiStatus').textContent = out.length + ' area(s) exported to aois.csv.';
   }
 
-  async function loadAoiFile(file) {
+  async function importAois(file) {
     try {
-      const j = JSON.parse(await file.text());
-      if (!j || !j.stimuli) throw new Error('not an AOI file');
+      const text = await file.text();
+      const firstLine = text.split(/\r?\n/, 1)[0];
+      const delim = firstLine.includes(';') && !firstLine.includes(',') ? ';' : ',';
+      const parsed = parseCSV(text, delim);
+      if (!parsed.length || !('aoi' in parsed[0]) || !('x' in parsed[0]) || !('width' in parsed[0])) throw new Error('format');
+      const byStim = groupBy(parsed, r => r.stimulus);
+      const msgs = [];
       let n = 0;
-      for (const [name, entry] of Object.entries(j.stimuli)) {
-        const st = aState.stimuli.get(name);
-        const sx = st && entry.stim_w ? st.W / entry.stim_w : 1;
-        const sy = st && entry.stim_h ? st.H / entry.stim_h : 1;
-        const list = (entry.aois || []).map((a, i) => ({
-          name: String(a.name || ('AOI ' + (i + 1))),
-          x: +a.x * sx, y: +a.y * sy, w: +a.w * sx, h: +a.h * sy,
-          from: numOrNull(a.from === null || a.from === undefined ? '' : a.from),
-          to: numOrNull(a.to === null || a.to === undefined ? '' : a.to)
-        })).filter(a => [a.x, a.y, a.w, a.h].every(Number.isFinite));
-        aois.set(name, list);
+      for (const [name, rs] of byStim) {
+        let target = name;
+        if (!ed.stimuli.has(name) && byStim.size === 1 && ed.stim) {
+          target = ed.stim.name;
+          msgs.push('The table was made for ' + name + ' and was applied to ' + target + '.');
+        }
+        const st = ed.stimuli.get(target);
+        const list = rs.map((r, i) => {
+          const sw = numOrNull(r.stim_w), sh = numOrNull(r.stim_h);
+          const sx = st && sw ? st.W / sw : 1, sy = st && sh ? st.H / sh : 1;
+          return {
+            name: String(r.aoi || ('AOI ' + (i + 1))),
+            x: numOrNull(r.x) * sx, y: numOrNull(r.y) * sy,
+            w: numOrNull(r.width) * sx, h: numOrNull(r.height) * sy,
+            from: numOrNull(r.from_s), to: numOrNull(r.to_s)
+          };
+        }).filter(a => [a.x, a.y, a.w, a.h].every(v => Number.isFinite(v)) && a.w > 0 && a.h > 0);
+        aois.set(target, list);
         n += list.length;
+        if (!st) msgs.push('The areas for ' + name + ' are kept and will apply when that file is selected.');
       }
       renderAoiList();
       drawEditor();
-      $('anStatus').textContent = n + ' area(s) of interest loaded from ' + file.name + '.';
+      $('aoiStatus').textContent = n + ' area(s) imported from ' + file.name + '. ' + msgs.join(' ');
     } catch (e) {
-      $('anStatus').textContent = file.name + ' could not be read as an AOI file.';
+      $('aoiStatus').textContent = file.name + ' could not be read as an AOI table.';
     }
   }
 
@@ -1320,15 +1535,17 @@
     if (!aState.samples.length) { $('anStatus').textContent = 'Load at least one gaze table first.'; return; }
     const num = id => numOrNull($(id).value);
     const opt = {
-      dispDeg: num('anDisp'), minDur: num('anMin'), maxGap: num('anGap'), sigmaDeg: num('anSigma'),
-      binSec: num('anBin'), start: num('anStart'), end: num('anEnd'), frameTime: num('anFrame')
+      dispDeg: num('anDisp'), minDur: num('anMin'), maxGap: num('anGap'), mergeDeg: num('anMerge'),
+      sigmaDeg: num('anSigma'), videoBinMs: num('anVidBin'),
+      start: num('anStart'), end: num('anEnd'), frameTime: num('anFrame')
     };
     $('anRun').disabled = true;
     $('anLinks').textContent = '';
     $('dlAllAn').hidden = true;
     $('anStatus').textContent = 'Making the plots and tables…';
     try {
-      const res = await analyse(aState.samples, aState.media, opt, aState.prefix, aois, bgOverride);
+      const res = await analyse(aState.samples, aState.media, opt, aState.prefix, aois, bgOverride,
+                                msg => { $('anStatus').textContent = msg; });
       for (const o of res.outs) addLink('anLinks', o.name, o.blob);
       $('dlAllAn').hidden = !res.outs.length;
       const n = new Set(aState.samples.map(s => s.participant)).size;
@@ -1352,15 +1569,17 @@
   $('newSession').onclick = () => location.reload();
   $('openAnalyse').onclick = () => openAnalysis(false);
   $('toAnalyse').onclick = () => openAnalysis(true);
-  $('anBack').onclick = () => show(anReturn);
+  $('anBack').onclick = () => { show(anReturn); if (anReturn === 'setup') refreshSetupEditor(); };
+  $('files').onchange = refreshSetupEditor;
+  for (const id of ['dist', 'width', 'limit']) $(id).addEventListener('input', () => { if (ed.mode === 'setup') renderAoiList(); });
   $('anRun').onclick = runAnalyse;
   for (const id of ['anCsv', 'anMedia', 'anSession']) $(id).onchange = loadFromInputs;
   $('aoiStim').onchange = () => selectStimulus($('aoiStim').value);
   $('aoiShowFrame').onclick = () => { if (ed.stim) loadEditorBackground(parseFloat($('aoiFrame').value)); };
   $('anAcc').oninput = renderAoiList;
-  $('aoiSave').onclick = saveAoiFile;
+  $('aoiSave').onclick = exportAois;
   $('aoiLoad').onclick = () => $('aoiFile').click();
-  $('aoiFile').onchange = () => { const f = $('aoiFile').files[0]; if (f) loadAoiFile(f); $('aoiFile').value = ''; };
+  $('aoiFile').onchange = () => { const f = $('aoiFile').files[0]; if (f) importAois(f); $('aoiFile').value = ''; };
   $('bgReplace').onclick = () => $('bgFile').click();
   $('bgFile').onchange = () => { const f = $('bgFile').files[0]; if (f) replaceBackground(f); $('bgFile').value = ''; };
   $('bgReset').onclick = async () => { if (!ed.stim) return; bgOverride.delete(ed.stim.name); updateBgControls(); await selectStimulus(ed.stim.name); };
