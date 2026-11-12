@@ -131,7 +131,7 @@
     </label>
     <div id="setupAoi" hidden>
       <h2>Areas of interest, optional</h2>
-      <p class="muted">Draw areas on your images now, or click Import AOI table to load an <code>aois.csv</code> from an earlier round with the same images. The areas are then counted automatically at the end of the session, and <code>aois.csv</code> is included in the downloads so you can reuse it next time. You can also define areas after the session.</p>
+      <p class="muted">Define the areas once and reuse them for every participant. The first time, draw the areas on the images and click Export AOI file to save <code>aois.csv</code>. For every later participant, select the same images and click Import AOI file. The session then writes the areas into the gaze table, and <code>aois.csv</code> is also among the downloads at the end.</p>
       <div id="setupAoiSlot"></div>
     </div>
     <div class="row"><button id="startCam" type="button">Start camera</button></div>
@@ -139,7 +139,7 @@
   </form>
   <hr>
   <h2>Combine several recordings</h2>
-  <p class="muted">Load the gaze tables of many participants at once. You get pooled heatmaps, and for every area of interest a plot of looks over time and a bar plot across participants.</p>
+  <p class="muted">Load the gaze tables of many participants at once. You get pooled heatmaps, scanpaths, area tables and one gaze table with areas for analysis in R.</p>
   <div class="row"><button id="openAnalyse" class="secondary" type="button">Analyse saved recordings</button></div>
   <p id="version" class="muted"></p>
 </section>
@@ -227,7 +227,7 @@
     <p id="anBgHelp" hidden>To show the plots on your own version of an image, for example one where you marked the areas in Photoshop or Illustrator, choose the stimulus and click Replace background. It should have the same proportions as the original.</p>
     <div id="anAoiSlot">
       <div id="aoiEditor" hidden>
-        <p>Choose a stimulus and drag on the image to draw a rectangle, then give it a name. Where rectangles overlap, the one drawn later counts. Fixations outside every area are labelled none. Export the areas as a table to reuse them whenever the same image is used.</p>
+        <p>Choose a stimulus and drag on the image to draw a rectangle, then give it a name. Where rectangles overlap, the one drawn later counts. Fixations outside every area are labelled none. Export AOI file saves all areas as <code>aois.csv</code>, and Import AOI file loads it again for the next participant.</p>
         <div class="row">
           <select id="aoiStim" aria-label="Stimulus"></select>
           <button id="bgReplace" class="secondary small" type="button">Replace background</button>
@@ -238,16 +238,18 @@
             <button id="aoiShowFrame" class="secondary small" type="button">Show video frame at this second</button>
           </span>
         </div>
+        <div class="row">
+          <button id="aoiLoad" type="button">Import AOI file</button>
+          <button id="aoiSave" type="button">Export AOI file</button>
+          <input id="aoiFile" type="file" accept=".csv,text/csv" hidden>
+        </div>
+        <p id="aoiStatus" class="muted" role="status"></p>
         <p id="bgNote" class="muted" hidden></p>
         <canvas id="aoiCanvas" width="16" height="9"></canvas>
         <div id="aoiList"></div>
         <div class="row">
-          <button id="aoiSave" class="secondary small" type="button">Export AOI table</button>
-          <button id="aoiLoad" class="secondary small" type="button">Import AOI table</button>
           <button id="aoiClear" class="secondary small" type="button">Remove all areas on this stimulus</button>
-          <input id="aoiFile" type="file" accept=".csv,text/csv" hidden>
         </div>
-        <p id="aoiStatus" class="muted" role="status"></p>
       </div>
     </div>
 
@@ -258,7 +260,7 @@
       <label>Merge fixations closer than, in degrees<small>Leave empty to keep them separate.</small><input id="anMerge" type="number" min="0" step="any" value="3"></label>
       <label>Largest sample gap in ms<input id="anGap" type="number" min="10" step="any" value="150" required></label>
       <label>Heatmap smoothing in degrees<input id="anSigma" type="number" min="0.1" step="any" value="1.5" required></label>
-      <label>Time course bins in ms<small>Bin width for the plots of looks to each area over time.</small><input id="anTc" type="number" min="20" step="any" value="100" required></label>
+      <label>Time course bins in ms<small>Bin width for the table of looks to each area over time.</small><input id="anTc" type="number" min="20" step="any" value="100" required></label>
       <label>Scanpath video trail in s<small>How long earlier fixations stay visible. Leave empty to keep the whole path on images and the last 2 seconds on videos.</small><input id="anTrail" type="number" min="0.2" step="any"></label>
       <label>Expected gaze accuracy in degrees<small>Filled in from session data when available. Areas narrower than twice this value get a warning.</small><input id="anAcc" type="number" min="0.1" step="any" value="4" required></label>
       <label>Video window start in s<small>Leave empty for the whole video.</small><input id="anStart" type="number" min="0" step="any"></label>
@@ -272,7 +274,7 @@
     <label class="check"><input id="anVideo" type="checkbox" checked> Make scanpath videos. Each one takes as long to make as the stimulus lasted.</label>
     <div class="row">
       <button id="anBack" class="secondary" type="button">Back</button>
-      <button id="anRun" type="button">Make the plots and tables</button>
+      <button id="anRun" type="button">Make the images and tables</button>
     </div>
   </form>
   <p id="anStatus" class="muted" role="status"></p>
@@ -307,7 +309,7 @@
   const MERGE_GAP_MS = 300;
   const SMOOTH_HALF_MS = 100;
   const OUTSIDE_MS = 60;
-  const VERSION = '2026-11-12 j';
+  const VERSION = '2026-11-12 k';
   const TC_COLS = ['participant','stimulus','aoi','bin_start_ms','n_samples','n_in_aoi','proportion'];
   const CONDITION_COLOURS = ['#F8766D','#00BFC4','#7CAE00','#C77CFF','#E69F00','#56B4E9'];
   const SCAN_COLOUR = '#1565c0';
@@ -688,13 +690,14 @@
     };
     addLink('links', pid + '_gaze.csv', csvBlob(annotateGaze(rows, aois, DEFAULT_ANALYSIS), GAZE_COLS));
     addLink('links', pid + '_session.json', new Blob([JSON.stringify(meta, null, 2)], { type: 'application/json' }));
-    for (const o of outputs) addLink('links', o.name, o.blob);
     const sessionAois = aoiTableRows(stimulusSizes(rows.map(normalise)));
     if (sessionAois.length) addLink('links', 'aois.csv', csvBlob(sessionAois, AOI_FILE_COLS));
+    for (const o of outputs) addLink('links', o.name, o.blob);
 
     const fmt = v => v && v.mean_offset_deg !== null ? v.mean_offset_deg.toFixed(2) + ' degrees' : 'not available';
     let text = 'Mean validation offset was ' + fmt(preVal) + ' before viewing and ' + fmt(postVal) + ' after viewing.';
     text += ' ' + rateText(rows.map(normalise));
+    if (sessionAois.length) text += ' The file aois.csv holds the areas of interest. Import it on the start page for the next participant.';
     if (errors.length) text += ' Some stimuli could not be shown. ' + errors.join('. ') + '.';
     $('summary').textContent = text;
     show('done');
@@ -1446,7 +1449,7 @@
   }
 
   async function analyse(samples, media, opt, prefix, aoiMap = null, overrides = null, onStatus = null) {
-    const tcRows = [], byAoiName = new Map();
+    const tcRows = [];
     const outs = [], notes = [], fixRows = [], aoiRows = [];
     let videoProblem = false;
     const useAoi = !!aoiMap && Array.from(aoiMap.values()).some(l => l.length);
@@ -1540,41 +1543,12 @@
       if (list.length && opt.tcBinMs) {
         const tc = timecourse(ss, list.map(a => a.name), type, opt.tcBinMs, q => aoiIndex(q, list, type));
         for (const r of tc.rows) { r.stimulus = stim; tcRows.push(r); }
-        const xLabel = type === 'video' ? 'Time in the video (ms)' : 'Time from the onset of the image (ms)';
-        const thumb = aoiThumb(bg, aw, ah, k, list);
-        const colour = i => AOI_COLOURS[i % AOI_COLOURS.length];
-        outs.push({ name: prefix + stem(stim) + '_timecourse.png', blob: await toBlob(drawTimecoursePlot({
-          series: list.map((a, i) => Object.assign({ name: a.name, color: colour(i) }, tc.series[i])),
-          xLabel, inset: thumb, insetTitle: stim, caption: plotNote(tc.nPart)
-        })) });
-        outs.push({ name: prefix + stem(stim) + '_aoi_bars.png', blob: await toBlob(drawBarPlot({
-          bars: list.map((a, i) => ({ name: a.name, color: colour(i), values: tc.overall[i] })),
-          xLabel: 'Area of interest', inset: thumb, insetTitle: stim, caption: plotNote(tc.nPart)
-        })) });
-        list.forEach((a, i) => {
-          if (!byAoiName.has(a.name)) byAoiName.set(a.name, []);
-          byAoiName.get(a.name).push({ stim, xLabel, series: tc.series[i], values: tc.overall[i], n: tc.nPart, crop: aoiCrop(bg, aw, ah, k, a) });
-        });
       }
     }
     if (fixRows.length) {
       outs.push({ name: prefix + 'fixations.csv', blob: csvBlob(fixRows, useAoi ? FIX_COLS.concat('aoi') : FIX_COLS) });
     }
     if (aoiRows.length) outs.push({ name: prefix + 'aoi_summary.csv', blob: csvBlob(aoiRows, AOI_COLS) });
-    // An area name used on several stimuli is compared across those stimuli, one line per stimulus
-    for (const [name, arr] of byAoiName) {
-      if (arr.length < 2) continue;
-      const colour = i => CONDITION_COLOURS[i % CONDITION_COLOURS.length];
-      const n = Math.max(...arr.map(e => e.n));
-      outs.push({ name: prefix + 'aoi_' + safe(name) + '_timecourse.png', blob: await toBlob(drawTimecoursePlot({
-        series: arr.map((e, i) => Object.assign({ name: e.stim, color: colour(i) }, e.series)),
-        xLabel: arr[0].xLabel, inset: arr[0].crop, insetTitle: name, caption: plotNote(n)
-      })) });
-      outs.push({ name: prefix + 'aoi_' + safe(name) + '_bars.png', blob: await toBlob(drawBarPlot({
-        bars: arr.map((e, i) => ({ name: e.stim, color: colour(i), values: e.values })),
-        xLabel: 'Stimulus', inset: arr[0].crop, insetTitle: name, caption: plotNote(n)
-      })) });
-    }
     if (tcRows.length) outs.push({ name: prefix + 'aoi_timecourse.csv', blob: csvBlob(tcRows, TC_COLS) });
     return { outs, notes };
   }
@@ -1884,7 +1858,7 @@
     a.download = 'aois.csv';
     a.click();
     setTimeout(() => URL.revokeObjectURL(a.href), 1000);
-    $('aoiStatus').textContent = out.length + ' area(s) exported to aois.csv.';
+    $('aoiStatus').textContent = out.length + ' area(s) exported to aois.csv in your Downloads folder.';
   }
 
   async function importAois(file) {
@@ -1976,7 +1950,7 @@
     $('anRun').disabled = true;
     $('anLinks').textContent = '';
     $('dlAllAn').hidden = true;
-    $('anStatus').textContent = 'Making the plots and tables…';
+    $('anStatus').textContent = 'Making the images and tables…';
     try {
       const res = await analyse(aState.samples, aState.media, opt, aState.prefix, aois, bgOverride,
                                 msg => { $('anStatus').textContent = msg; });
