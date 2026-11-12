@@ -43,6 +43,7 @@
   button:disabled { opacity: 0.45; cursor: default; }
   button:focus-visible, input:focus-visible, a:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
   a { color: var(--accent); }
+  .check { display: flex; gap: 8px; align-items: center; font-weight: 400; }
   .row { display: flex; flex-wrap: wrap; gap: 10px; margin: 20px 0; }
   .err { color: var(--bad); min-height: 1.5em; }
   hr { border: 0; border-top: 1px solid var(--line); margin: 40px 0 0; }
@@ -256,12 +257,13 @@
       <label>Merge fixations closer than, in degrees<small>Leave empty to keep them separate.</small><input id="anMerge" type="number" min="0" step="any" value="3"></label>
       <label>Largest sample gap in ms<input id="anGap" type="number" min="10" step="any" value="150" required></label>
       <label>Heatmap smoothing in degrees<input id="anSigma" type="number" min="0.1" step="any" value="1.5" required></label>
-      <label>Scanpath video time bins in ms<small>Leave empty to skip the videos. Making a video takes as long as the stimulus lasted.</small><input id="anVidBin" type="number" min="50" step="any" value="500"></label>
+      <label>Scanpath video trail in s<small>How long earlier fixations stay visible. Leave empty to keep the whole path on images and the last 2 seconds on videos.</small><input id="anTrail" type="number" min="0.2" step="any"></label>
       <label>Expected gaze accuracy in degrees<small>Filled in from session data when available. Areas narrower than twice this value get a warning.</small><input id="anAcc" type="number" min="0.1" step="any" value="4" required></label>
       <label>Video window start in s<small>Leave empty for the whole video.</small><input id="anStart" type="number" min="0" step="any"></label>
       <label>Video window end in s<small>Leave empty for the whole video.</small><input id="anEnd" type="number" min="0" step="any"></label>
       <label>Video background frame in s<small>Leave empty for the middle of the window.</small><input id="anFrame" type="number" min="0" step="any"></label>
     </div>
+    <label class="check"><input id="anVideo" type="checkbox" checked> Make scanpath videos. Each one takes as long to make as the stimulus lasted.</label>
     <div class="row">
       <button id="anBack" class="secondary" type="button">Back</button>
       <button id="anRun" type="button">Make the plots and tables</button>
@@ -295,7 +297,7 @@
   const MAX_VIDEO_WIDTH = 1280;
   const TRAIL_MS = 600;
   // Analysis defaults used at the end of a session
-  const DEFAULT_ANALYSIS = { dispDeg: 3, minDur: 200, maxGap: 150, mergeDeg: 3, sigmaDeg: 1.5, videoBinMs: 500, start: null, end: null, frameTime: null };
+  const DEFAULT_ANALYSIS = { dispDeg: 3, minDur: 200, maxGap: 150, mergeDeg: 3, sigmaDeg: 1.5, scanVideo: true, trailSec: null, start: null, end: null, frameTime: null };
   const MERGE_GAP_MS = 300;
   const SCAN_COLOUR = '#1565c0';
   const SCAN_FILL = 'rgba(21, 101, 192, 0.85)';
@@ -957,10 +959,11 @@
     return c;
   }
 
-  // Animated scanpath. Time is cut into bins, and each bin shows the fixations that are ongoing
-  // in it. A fixation that continues into the next bin stays in place, fixations that ended
-  // fade out and new ones fade in. The video is recorded in real time.
-  async function recordScanpathVideo(staticBg, videoFile, type, W, H, fx, lo, hi, binMs) {
+  // Animated scanpath in continuous time. Each fixation appears at the moment it began and
+  // grows while it lasts. The line to the next fixation is drawn as the eye moves there.
+  // Earlier fixations stay visible in a dimmed form, for the whole video or for trailSec seconds.
+  // The video is recorded in real time.
+  async function recordScanpathVideo(staticBg, videoFile, type, W, H, fx, lo, hi, trailSec) {
     const mime = pickMime();
     const cs = Math.min(1, MAX_VIDEO_WIDTH / W);
     const cw = Math.max(2, Math.round(W * cs / 2) * 2), ch = Math.max(2, Math.round(H * cs / 2) * 2);
@@ -969,21 +972,22 @@
     if (mime === null || !canvas.captureStream) return null;
     const ctx = canvas.getContext('2d');
     const unit = Math.max(cw, ch) / 100;
-    const bw = binMs / 1000;
-    const tOf = f => (type === 'video' ? f.mt : f.start / 1000);
-    const bins = new Map();
-    fx.forEach((f, i) => {
-      const t1 = tOf(f), t2 = t1 + f.dur / 1000;
-      for (let b = Math.floor(t1 / bw); b <= Math.floor(t2 / bw); b++) {
-        if (!bins.has(b)) bins.set(b, []);
-        bins.get(b).push(i);
-      }
-    });
+    const ts = fx.map(f => (type === 'video' ? f.mt : f.start / 1000));
+    const te = fx.map((f, i) => ts[i] + f.dur / 1000);
     const maxDur = Math.max(...fx.map(f => f.dur), 1);
-    const fade = Math.min(0.18, bw * 0.4);
-    const ease = x => 1 - Math.pow(1 - x, 3);
+    const trail = trailSec !== null && trailSec > 0 ? trailSec : (type === 'video' ? 2 : Infinity);
+    const smooth = x => x * x * (3 - 2 * x);
+    const radius = d => unit * (0.9 + 2.2 * Math.sqrt(Math.min(1, d / maxDur)));
+    const alphaAt = (i, T) => {
+      if (T < ts[i]) return 0;
+      if (T <= te[i]) return 1;
+      const since = T - te[i];
+      let a = 1 - 0.5 * Math.min(1, since / 0.3);
+      if (since > trail) a *= Math.max(0, 1 - (since - trail) / 0.5);
+      return a;
+    };
     const start = type === 'video' ? lo : 0;
-    const end = Math.max(start + bw, hi);
+    const end = Math.max(start + 0.5, hi);
 
     let video = null, url = null;
     if (videoFile) {
@@ -1004,25 +1008,43 @@
       if (video) ctx.drawImage(video, 0, 0, cw, ch);
       else if (staticBg) ctx.drawImage(staticBg, 0, 0, cw, ch);
       else { ctx.fillStyle = '#808080'; ctx.fillRect(0, 0, cw, ch); }
-      const b = Math.floor(T / bw);
-      const aIn = Math.min(1, Math.max(0, (T - b * bw) / fade));
-      const cur = bins.get(b) || [], prev = bins.get(b - 1) || [];
-      const inPrev = new Set(prev), inCur = new Set(cur);
-      if (aIn < 1 && prev.length) {
-        drawScan(ctx, prev.map(i => fx[i]), cs, unit, {
-          numbers: prev.map(i => i + 1), maxDur, alpha: 1 - aIn,
-          pointAlpha: prev.map(i => (inCur.has(i) ? 0 : 1 - aIn))
-        });
+      ctx.save();
+      ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+      // Lines. Each one is drawn during the eye movement and arrives when the next fixation begins.
+      for (let i = 0; i + 1 < fx.length; i++) {
+        const arrive = ts[i + 1];
+        const depart = arrive - Math.max(arrive - te[i], 0.12);
+        if (T <= depart) continue;
+        const a = T < arrive ? alphaAt(i, T) : Math.min(alphaAt(i, T), alphaAt(i + 1, T));
+        if (a <= 0) continue;
+        const p = smooth(Math.min(1, (T - depart) / (arrive - depart)));
+        const x0 = fx[i].x * cs, y0 = fx[i].y * cs;
+        const x1 = x0 + (fx[i + 1].x * cs - x0) * p, y1 = y0 + (fx[i + 1].y * cs - y0) * p;
+        ctx.globalAlpha = a;
+        for (const [col, lw] of [['rgba(255,255,255,0.9)', unit * 0.6], [SCAN_COLOUR, unit * 0.3]]) {
+          ctx.strokeStyle = col; ctx.lineWidth = lw;
+          ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.stroke();
+        }
       }
-      if (cur.length) {
-        drawScan(ctx, cur.map(i => fx[i]), cs, unit, {
-          numbers: cur.map(i => i + 1), maxDur, alpha: aIn,
-          pointAlpha: cur.map(i => (inPrev.has(i) ? 1 : aIn)),
-          pointGrow: cur.map(i => (inPrev.has(i) ? 1 : 0.6 + 0.4 * ease(aIn))),
-          linkFrom: prev.length && !inPrev.has(cur[0]) ? fx[prev[prev.length - 1]] : null
-        });
-      }
-      drawLabel(ctx, unit, (b * bw).toFixed(1) + ' to ' + ((b + 1) * bw).toFixed(1) + ' s');
+      // Fixations. The current one is at full strength and grows with its duration so far.
+      ctx.font = '600 ' + Math.max(10, Math.round(unit * 1.1)) + 'px system-ui, sans-serif';
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      fx.forEach((f, i) => {
+        const a = alphaAt(i, T);
+        if (a <= 0) return;
+        const ongoing = T <= te[i];
+        const pop = smooth(Math.min(1, (T - ts[i]) / 0.1));
+        const r = radius(ongoing ? (T - ts[i]) * 1000 : f.dur) * (0.5 + 0.5 * pop);
+        ctx.globalAlpha = a;
+        ctx.fillStyle = SCAN_FILL;
+        ctx.strokeStyle = '#ffffff';
+        ctx.lineWidth = Math.max(1, unit * (ongoing ? 0.35 : 0.15));
+        ctx.beginPath(); ctx.arc(f.x * cs, f.y * cs, r, 0, 2 * Math.PI); ctx.fill(); ctx.stroke();
+        ctx.fillStyle = '#ffffff';
+        ctx.fillText(String(i + 1), f.x * cs, f.y * cs);
+      });
+      ctx.restore();
+      drawLabel(ctx, unit, T.toFixed(1) + ' s');
     };
 
     const rec = new MediaRecorder(canvas.captureStream(30), mime ? { mimeType: mime, videoBitsPerSecond: 6e6 } : {});
@@ -1165,7 +1187,7 @@
         } else {
           notes.push(p + ' had no fixations on ' + stim + ' with these settings.');
         }
-        if (opt.videoBinMs && fx.length && !videoProblem) {
+        if (opt.scanVideo && fx.length && !videoProblem) {
           if (onStatus) onStatus('Recording the scanpath video for ' + p + ' on ' + stim + '. This takes as long as the stimulus lasted.');
           let lo = 0, hi = ps[ps.length - 1].t / 1000;
           if (type === 'video') {
@@ -1174,7 +1196,7 @@
           }
           try {
             const videoFile = type === 'video' && file && !usedOverride ? file : null;
-            const v = await recordScanpathVideo(bg, videoFile, type, W, H, fx, lo, hi, opt.videoBinMs);
+            const v = await recordScanpathVideo(bg, videoFile, type, W, H, fx, lo, hi, opt.trailSec);
             if (v) outs.push({ name: safe(p) + '_' + stem(stim) + '_scanpath_video.' + v.ext, blob: v.blob });
             else { videoProblem = true; notes.push('This browser cannot record video, so no scanpath videos were made.'); }
           } catch (e) {
@@ -1553,7 +1575,7 @@
     const num = id => numOrNull($(id).value);
     const opt = {
       dispDeg: num('anDisp'), minDur: num('anMin'), maxGap: num('anGap'), mergeDeg: num('anMerge'),
-      sigmaDeg: num('anSigma'), videoBinMs: num('anVidBin'),
+      sigmaDeg: num('anSigma'), scanVideo: $('anVideo').checked, trailSec: num('anTrail'),
       start: num('anStart'), end: num('anEnd'), frameTime: num('anFrame')
     };
     $('anRun').disabled = true;
