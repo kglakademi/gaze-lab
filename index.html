@@ -101,7 +101,8 @@
 <body>
 
 <section id="setup">
-  <h1>Gaze lab</h1>
+  <h1 id="setupTitle">Gaze lab</h1>
+  <p id="rerunNote" hidden></p>
   <p>This page tracks your gaze with the webcam while you look at images and videos. The camera video and your gaze data stay on this computer and are never uploaded. At the end you download a gaze table, overlay videos, heatmaps and scanpaths.</p>
   <p class="muted">Use Chrome or Edge on a laptop or desktop with a webcam.</p>
   <form id="setupForm" onsubmit="return false">
@@ -191,14 +192,16 @@
 </div>
 
 <section id="done" hidden>
-  <h1>Finished</h1>
+  <h1 id="doneTitle">Finished</h1>
   <p id="summary"></p>
   <ul id="links" class="links"></ul>
-  <div class="row"><button id="dlAllDone" class="secondary small" type="button">Download all files</button></div>
+  <div class="row"><button id="dlAllDone" class="secondary small" type="button">Download all files from this run</button></div>
+  <div id="prevRuns"></div>
   <p id="doneStatus" class="muted" role="status"></p>
-  <p class="muted">Download every file before closing this page. The files exist only in this browser tab.</p>
+  <p class="muted">Download every file before closing this page. The files exist only in this browser tab. Run again keeps the camera and the calibration, so the same person can repeat the images or view new ones after a short accuracy check. A new person must start a new session.</p>
   <div class="row">
-    <button id="toAnalyse" type="button">Areas of interest and backgrounds</button>
+    <button id="rerun" type="button">Run again with the same calibration</button>
+    <button id="toAnalyse" class="secondary" type="button">Areas of interest and backgrounds</button>
     <button id="newSession" class="secondary" type="button">Start a new session</button>
   </div>
 </section>
@@ -308,25 +311,30 @@
   const MERGE_GAP_MS = 300;
   const SMOOTH_HALF_MS = 100;
   const OUTSIDE_MS = 60;
-  const VERSION = '2026-11-12 m';
+  const VERSION = '2026-11-12 n';
 
   const SCAN_COLOUR = '#1565c0';
   const SCAN_FILL = 'rgba(21, 101, 192, 0.85)';
   const MAX_PLOT_WIDTH = 1600;
   const HEAT_GRID_WIDTH = 400;
 
-  const COLS = ['participant','stimulus_index','stimulus','stimulus_type','t_ms','media_time_s',
+  const COLS = ['participant','run','stimulus_index','stimulus','stimulus_type','t_ms','media_time_s',
                 'x_screen','y_screen','x_stim','y_stim','on_stimulus','stim_w','stim_h','stim_px_per_deg','aoi'];
   const GAZE_COLS = COLS.concat(['fixation', 'fixation_aoi']);
-  const FIX_COLS = ['participant','stimulus','fixation','start_ms','end_ms','duration_ms','media_start_s',
+  const FIX_COLS = ['participant','run','stimulus','fixation','start_ms','end_ms','duration_ms','media_start_s',
                     'x_stim','y_stim','n_samples'];
-  const AOI_COLS = ['participant','stimulus','aoi','fixation_count','dwell_ms','dwell_share',
+  const AOI_COLS = ['participant','run','stimulus','aoi','fixation_count','dwell_ms','dwell_share',
                     'time_to_first_fixation_ms','visits'];
   const AOI_FILE_COLS = ['stimulus','aoi','x','y','width','height','stim_w','stim_h','from_s','to_s'];
   const AOI_COLOURS = ['#e6194b','#3cb44b','#4363d8','#f58231','#911eb4','#0fa3b1','#f032e6','#808000'];
 
   let latest = null, collecting = null, current = null, skipNow = null;
   let listenersOn = true, preVal = null, postVal = null, pid = '';
+  let runNo = 1, calibratedInRun = 1;
+  // File name stem for this run, for example P01 or P01_run2
+  const filePrefix = () => (runNo > 1 ? pid + '_run' + runNo : pid);
+  // One person in one run is one unit of analysis
+  const unitOf = s => (s.run > 1 ? s.participant + '_run' + s.run : s.participant);
   const rows = [], outputs = [], errors = [];
   let sessionFiles = [];
   // Analysis page state
@@ -507,6 +515,7 @@
   }
 
   async function calibrate() {
+    calibratedInRun = runNo;
     setListeners(true);
     await webgazer.clearData();
     await enterFullscreen();
@@ -585,7 +594,7 @@
           const on = xs >= 0 && xs <= nw && ys >= 0 && ys <= nh ? 1 : 0;
           const mt = isVideo ? el.currentTime : t / 1000;
           rows.push({
-            participant: pid, stimulus_index: idx + 1, stimulus: file.name,
+            participant: pid, run: runNo, stimulus_index: idx + 1, stimulus: file.name,
             stimulus_type: isVideo ? 'video' : 'image',
             t_ms: Math.round(t), media_time_s: +mt.toFixed(3),
             x_screen: Math.round(x), y_screen: Math.round(y),
@@ -646,7 +655,7 @@
         const type = rec.mimeType || mime || 'video/webm';
         const ext = type.includes('mp4') ? 'mp4' : 'webm';
         outputs.push({
-          name: pid + '_' + String(idx + 1).padStart(2, '0') + '_' + stem(file.name) + '_gaze.' + ext,
+          name: filePrefix() + '_' + String(idx + 1).padStart(2, '0') + '_' + stem(file.name) + '_gaze.' + ext,
           blob: new Blob(chunks, { type })
         });
       }
@@ -658,6 +667,46 @@
       if (isVideo) el.load();
       URL.revokeObjectURL(url);
     }
+  }
+
+  // Prepares another run for the same person with the calibration kept in memory
+  function prepareRerun() {
+    // Earlier runs' files stay available in a folded list
+    const old = $('links');
+    if (old.children.length) {
+      const d = document.createElement('details');
+      const sum = document.createElement('summary');
+      sum.textContent = 'Files from ' + (runNo > 1 ? 'run ' + runNo : 'run 1');
+      old.removeAttribute('id');
+      d.append(sum, old);
+      $('prevRuns').prepend(d);
+      const fresh = document.createElement('ul');
+      fresh.id = 'links'; fresh.className = 'links';
+      $('dlAllDone').parentElement.before(fresh);
+    }
+    runNo++;
+    rows.length = 0; outputs.length = 0; errors.length = 0;
+    preVal = null; postVal = null;
+    $('doneStatus').textContent = '';
+    $('setupTitle').textContent = 'Run ' + runNo;
+    const note = $('rerunNote');
+    note.hidden = false;
+    note.textContent = 'Run ' + runNo + ' for participant ' + pid + ' with the same calibration. Keep the images to repeat the run, or select new ones and set their areas of interest. Before viewing starts, the orange circles check that the calibration is still accurate.';
+    for (const id of ['pid', 'dist', 'width']) $(id).disabled = true;
+    $('startCam').textContent = 'Check accuracy and start';
+    show('setup');
+    refreshSetupEditor();
+  }
+
+  async function startRerun() {
+    if (!$('setupForm').reportValidity()) return;
+    if (!$('files').files.length) { $('camError').textContent = 'Select at least one image or video.'; return; }
+    $('camError').textContent = '';
+    webgazer.resume();
+    await enterFullscreen();
+    preVal = await runValidation('Look at each orange circle without moving your head. Do not click.');
+    renderResult(preVal);
+    show('result');
   }
 
   async function startViewing() {
@@ -674,11 +723,12 @@
 
   async function finish(files) {
     sessionFiles = files;
-    try { webgazer.end(); } catch (e) { /* already stopped */ }
+    // The tracker is paused, not ended, so the calibration can be reused for another run
+    try { webgazer.pause(); webgazer.showVideoPreview(false); webgazer.showFaceFeedbackBox(false); } catch (e) { /* ignore */ }
     try { if (document.fullscreenElement) await document.exitFullscreen(); } catch (e) { /* ignore */ }
     const g = geometry();
     const meta = {
-      participant: pid, user_agent: navigator.userAgent,
+      participant: pid, run: runNo, calibrated_in_run: calibratedInRun, user_agent: navigator.userAgent,
       screen_px: [window.screen.width, window.screen.height],
       viewport_px: [window.innerWidth, window.innerHeight],
       viewing_distance_cm: g.dist, screen_width_cm: g.width,
@@ -686,8 +736,9 @@
       validation_before: preVal, validation_after: postVal, errors,
       median_sample_interval_ms: sampleInterval(rows.map(normalise)), app_version: VERSION
     };
-    addLink('links', pid + '_gaze.csv', csvBlob(annotateGaze(rows, aois, DEFAULT_ANALYSIS), GAZE_COLS));
-    addLink('links', pid + '_session.json', new Blob([JSON.stringify(meta, null, 2)], { type: 'application/json' }));
+    $('doneTitle').textContent = runNo > 1 ? 'Run ' + runNo + ' finished' : 'Finished';
+    addLink('links', filePrefix() + '_gaze.csv', csvBlob(annotateGaze(rows, aois, DEFAULT_ANALYSIS), GAZE_COLS));
+    addLink('links', filePrefix() + '_session.json', new Blob([JSON.stringify(meta, null, 2)], { type: 'application/json' }));
     const sessionAois = aoiTableRows(stimulusSizes(rows.map(normalise)));
     if (sessionAois.length) addLink('links', 'aois.csv', csvBlob(sessionAois, AOI_FILE_COLS));
     for (const o of outputs) addLink('links', o.name, o.blob);
@@ -703,7 +754,7 @@
     $('doneStatus').textContent = 'Making heatmaps and scanpaths. The files so far can already be downloaded.';
     try {
       const media = new Map(files.map(f => [f.name, f]));
-      const res = await analyse(rows.map(normalise), media, DEFAULT_ANALYSIS, pid + '_', aois, null,
+      const res = await analyse(rows.map(normalise), media, DEFAULT_ANALYSIS, filePrefix() + '_', aois, null,
                                 msg => { $('doneStatus').textContent = msg; });
       for (const o of res.outs) addLink('links', o.name, o.blob);
       $('doneStatus').textContent = res.notes.join(' ');
@@ -716,7 +767,8 @@
 
   function normalise(r) {
     return {
-      participant: String(r.participant), stimulus: String(r.stimulus), type: String(r.stimulus_type),
+      participant: String(r.participant), run: Number(r.run) > 0 ? Number(r.run) : 1,
+      stimulus: String(r.stimulus), type: String(r.stimulus_type),
       t: +r.t_ms, mt: +r.media_time_s, x: +r.x_stim, y: +r.y_stim, on: +r.on_stimulus === 1,
       w: +r.stim_w, h: +r.stim_h, ppd: +r.stim_px_per_deg,
       aoi: r.aoi === undefined || r.aoi === null ? '' : String(r.aoi)
@@ -810,7 +862,7 @@
   // aoi is recomputed where areas exist for the stimulus, otherwise an existing value is kept.
   function annotateGaze(raw, aoiMap, opt) {
     const out = raw.map(r => Object.assign({}, r, { fixation: '', fixation_aoi: '' }));
-    const groups = groupBy(out.map((r, i) => ({ r, s: normalise(r), i })), e => e.s.participant + '\u0000' + e.s.stimulus);
+    const groups = groupBy(out.map((r, i) => ({ r, s: normalise(r), i })), e => unitOf(e.s) + '\u0000' + e.s.stimulus);
     for (const g of groups.values()) {
       const type = g[0].s.type, list = (aoiMap && aoiMap.get(g[0].s.stimulus)) || [];
       g.sort((a, b) => a.s.t - b.s.t);
@@ -841,7 +893,7 @@
   // Median time between consecutive gaze samples of the same participant and stimulus, in ms
   function sampleInterval(samples) {
     const d = [];
-    for (const ss of groupBy(samples, s => s.participant + '\u0000' + s.stimulus).values()) {
+    for (const ss of groupBy(samples, s => unitOf(s) + '\u0000' + s.stimulus).values()) {
       const t = ss.map(s => s.t).sort((a, b) => a - b);
       for (let i = 1; i < t.length; i++) d.push(t[i] - t[i - 1]);
     }
@@ -1237,12 +1289,12 @@
 
       const list = useAoi ? (aoiMap.get(stim) || []) : [];
       const pool = list.map(() => ({ hit: 0, tot: 0 }));
-      for (const [p, ps] of groupBy(ss, s => s.participant)) {
+      for (const [p, ps] of groupBy(ss, unitOf)) {
         ps.sort((a, b) => a.t - b.t);
         const fx = fixationsFor(ps, opt);
         for (const f of fx) f.aoiIdx = aoiIndex(f, list, type);
         fx.forEach((f, i) => fixRows.push({
-          participant: p, stimulus: stim, fixation: i + 1,
+          participant: ps[0].participant, run: ps[0].run, stimulus: stim, fixation: i + 1,
           start_ms: Math.round(f.start), end_ms: Math.round(f.end), duration_ms: Math.round(f.dur),
           media_start_s: +f.mt.toFixed(3), x_stim: +f.x.toFixed(1), y_stim: +f.y.toFixed(1), n_samples: f.n,
           aoi: f.aoiIdx >= 0 ? list[f.aoiIdx].name : 'none'
@@ -1259,7 +1311,7 @@
             ? Math.round((first.mt - (a.from === null ? 0 : a.from)) * 1000)
             : Math.round(first.start);
           aoiRows.push({
-            participant: p, stimulus: stim, aoi: a.name, fixation_count: hits.length,
+            participant: ps[0].participant, run: ps[0].run, stimulus: stim, aoi: a.name, fixation_count: hits.length,
             dwell_ms: Math.round(dwell), dwell_share: tot > 0 ? +(dwell / tot).toFixed(3) : '',
             time_to_first_fixation_ms: ttff, visits
           });
@@ -1656,7 +1708,7 @@
     $('anSessionNote').hidden = !fromSession;
     if (fromSession) {
       anReturn = 'done';
-      aState.prefix = pid + '_';
+      aState.prefix = filePrefix() + '_';
       const acc = preVal ? preVal.mean_offset_deg : null;
       setAnalysisData(rows.map(normalise), new Map(sessionFiles.map(f => [f.name, f])), acc === null ? NaN : acc, rows);
     } else {
@@ -1720,7 +1772,8 @@
     if ((e.key === 's' || e.key === 'S') && skipNow) skipNow();
   });
   $('version').textContent = 'Version ' + VERSION;
-  $('startCam').onclick = startCamera;
+  $('startCam').onclick = () => (runNo > 1 ? startRerun() : startCamera());
+  $('rerun').onclick = prepareRerun;
   $('toIntro').onclick = () => show('intro');
   $('beginCal').onclick = calibrate;
   $('recal').onclick = calibrate;
