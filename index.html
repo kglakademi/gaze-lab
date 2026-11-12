@@ -260,7 +260,6 @@
       <label>Merge fixations closer than, in degrees<small>Leave empty to keep them separate.</small><input id="anMerge" type="number" min="0" step="any" value="3"></label>
       <label>Largest sample gap in ms<input id="anGap" type="number" min="10" step="any" value="150" required></label>
       <label>Heatmap smoothing in degrees<input id="anSigma" type="number" min="0.1" step="any" value="1.5" required></label>
-      <label>Time course bins in ms<small>Bin width for the table of looks to each area over time.</small><input id="anTc" type="number" min="20" step="any" value="50" required></label>
       <label>Scanpath video trail in s<small>How long earlier fixations stay visible. Leave empty to keep the whole path on images and the last 2 seconds on videos.</small><input id="anTrail" type="number" min="0.2" step="any"></label>
       <label>Expected gaze accuracy in degrees<small>Filled in from session data when available. Areas narrower than twice this value get a warning.</small><input id="anAcc" type="number" min="0.1" step="any" value="4" required></label>
       <label>Video window start in s<small>Leave empty for the whole video.</small><input id="anStart" type="number" min="0" step="any"></label>
@@ -305,13 +304,12 @@
   const MAX_VIDEO_WIDTH = 1280;
   const TRAIL_MS = 600;
   // Analysis defaults used at the end of a session
-  const DEFAULT_ANALYSIS = { dispDeg: 3, minDur: 200, maxGap: 150, mergeDeg: 3, sigmaDeg: 1.5, scanVideo: true, trailSec: null, tcBinMs: 50, start: null, end: null, frameTime: null };
+  const DEFAULT_ANALYSIS = { dispDeg: 3, minDur: 200, maxGap: 150, mergeDeg: 3, sigmaDeg: 1.5, scanVideo: true, trailSec: null, start: null, end: null, frameTime: null };
   const MERGE_GAP_MS = 300;
   const SMOOTH_HALF_MS = 100;
   const OUTSIDE_MS = 60;
-  const VERSION = '2026-11-12 l';
-  const TC_COLS = ['participant','stimulus','aoi','bin_start_ms','n_samples','n_in_aoi','proportion'];
-  const CONDITION_COLOURS = ['#F8766D','#00BFC4','#7CAE00','#C77CFF','#E69F00','#56B4E9'];
+  const VERSION = '2026-11-12 m';
+
   const SCAN_COLOUR = '#1565c0';
   const SCAN_FILL = 'rgba(21, 101, 192, 0.85)';
   const MAX_PLOT_WIDTH = 1600;
@@ -1204,252 +1202,7 @@
     return c;
   }
 
-  /* ---------- Looks to areas over time ---------- */
-
-  // For every participant and time bin, the proportion of gaze samples on the stimulus that fall
-  // in each area. Then the mean and standard error across participants per bin.
-  function timecourse(ss, names, type, binMs, indexOf) {
-    const perP = new Map();
-    for (const s of ss) {
-      const b = Math.floor((type === 'video' ? s.mt * 1000 : s.t) / binMs);
-      if (!perP.has(s.participant)) perP.set(s.participant, new Map());
-      const m = perP.get(s.participant);
-      let e = m.get(b);
-      if (!e) { e = { n: 0, h: new Array(names.length).fill(0) }; m.set(b, e); }
-      e.n++;
-      const i = indexOf(s);
-      if (i >= 0) e.h[i]++;
-    }
-    const P = perP.size;
-    const allBins = new Set();
-    for (const m of perP.values()) for (const b of m.keys()) allBins.add(b);
-    const bins = Array.from(allBins).sort((a, b) => a - b)
-      .filter(b => { let c = 0; for (const m of perP.values()) if (m.has(b)) c++; return c >= Math.max(1, Math.ceil(P / 2)); });
-    const stats = v => {
-      const n = v.length, mean = v.reduce((a, x) => a + x, 0) / n;
-      const se = n > 1 ? Math.sqrt(v.reduce((a, x) => a + (x - mean) ** 2, 0) / (n - 1) / n) : 0;
-      return { mean, se };
-    };
-    const series = names.map((a, i) => {
-      const t = [], mean = [], se = [];
-      for (const b of bins) {
-        const v = [];
-        for (const m of perP.values()) { const e = m.get(b); if (e) v.push(e.h[i] / e.n); }
-        const st = stats(v);
-        t.push((b + 0.5) * binMs); mean.push(st.mean); se.push(st.se);
-      }
-      return { t, mean, se };
-    });
-    const overall = names.map((a, i) => {
-      const v = [];
-      for (const m of perP.values()) {
-        let n = 0, h = 0;
-        for (const e of m.values()) { n += e.n; h += e.h[i]; }
-        if (n) v.push(h / n);
-      }
-      return v;
-    });
-    const rows = [];
-    for (const [p, m] of perP) {
-      for (const b of Array.from(m.keys()).sort((x, y) => x - y)) {
-        const e = m.get(b);
-        names.forEach((a, i) => rows.push({
-          participant: p, aoi: a, bin_start_ms: b * binMs, n_samples: e.n, n_in_aoi: e.h[i],
-          proportion: +(e.h[i] / e.n).toFixed(4)
-        }));
-      }
-    }
-    return { series, overall, rows, nPart: P };
-  }
-
-  const PLOT = { W: 1600, H: 1000, L: 170, R: 360, T: 70, B: 170, serif: 'Georgia, "Times New Roman", serif', sans: 'system-ui, sans-serif' };
-
-  function plotCanvas() {
-    const c = document.createElement('canvas');
-    c.width = PLOT.W; c.height = PLOT.H;
-    const ctx = c.getContext('2d');
-    ctx.fillStyle = '#ffffff';
-    ctx.fillRect(0, 0, PLOT.W, PLOT.H);
-    return { c, ctx };
-  }
-  function niceStep(range, target) {
-    const raw = range / target, mag = Math.pow(10, Math.floor(Math.log10(raw)));
-    for (const f of [1, 2, 2.5, 5, 10]) if (raw <= f * mag) return f * mag;
-    return 10 * mag;
-  }
-  function yAxis(ctx, ymax, yLabel) {
-    const { L, R, T, B, W, H } = PLOT;
-    const y = v => H - B - v / ymax * (H - T - B);
-    const step = niceStep(ymax, 5);
-    ctx.font = '28px ' + PLOT.serif;
-    ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
-    for (let v = 0; v <= ymax + 1e-9; v += step) {
-      ctx.strokeStyle = '#ebebeb'; ctx.lineWidth = 2;
-      ctx.beginPath(); ctx.moveTo(L, y(v)); ctx.lineTo(W - R, y(v)); ctx.stroke();
-      ctx.fillStyle = '#333333';
-      ctx.fillText(String(+v.toFixed(2)), L - 16, y(v));
-    }
-    ctx.save();
-    ctx.translate(50, T + (H - T - B) / 2); ctx.rotate(-Math.PI / 2);
-    ctx.textAlign = 'center'; ctx.font = '30px ' + PLOT.serif; ctx.fillStyle = '#111111';
-    ctx.fillText(yLabel, 0, 0);
-    ctx.restore();
-    return y;
-  }
-  function plotInset(ctx, inset, title) {
-    if (!inset) return;
-    const { R, T, W } = PLOT;
-    const bw = 260, bh = 190, x = W - R + 50, y = T + 50;
-    ctx.font = '600 28px ' + PLOT.sans; ctx.fillStyle = '#111111';
-    ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
-    let text = title;
-    while (ctx.measureText(text).width > bw + 30 && text.length > 4) text = text.slice(0, -2);
-    ctx.fillText(text === title ? title : text + '…', x + bw / 2, y - 14);
-    ctx.fillStyle = '#ffffff'; ctx.strokeStyle = '#555555'; ctx.lineWidth = 2;
-    ctx.beginPath(); ctx.roundRect(x, y, bw, bh, 16); ctx.fill(); ctx.stroke();
-    const k = Math.min((bw - 24) / inset.width, (bh - 24) / inset.height);
-    const w = inset.width * k, h = inset.height * k;
-    ctx.drawImage(inset, x + (bw - w) / 2, y + (bh - h) / 2, w, h);
-  }
-  function plotLegend(ctx, items, x, y) {
-    ctx.font = '26px ' + PLOT.serif; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
-    items.forEach((it, i) => {
-      const yy = y + i * 38;
-      ctx.strokeStyle = it.color; ctx.lineWidth = 6;
-      ctx.beginPath(); ctx.moveTo(x, yy); ctx.lineTo(x + 46, yy); ctx.stroke();
-      ctx.fillStyle = '#111111';
-      let name = it.name;
-      while (ctx.measureText(name).width > 220 && name.length > 4) name = name.slice(0, -2);
-      ctx.fillText(name === it.name ? name : name + '…', x + 58, yy);
-    });
-  }
-  function plotCaption(ctx, text) {
-    ctx.font = '22px ' + PLOT.serif; ctx.fillStyle = '#555555';
-    ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
-    ctx.fillText(text, PLOT.L, PLOT.H - 24);
-  }
-
-  // Line plot with a shaded band of one standard error around each mean line
-  function drawTimecoursePlot(o) {
-    const { c, ctx } = plotCanvas();
-    const { L, R, T, B, W, H } = PLOT;
-    let tmin = Infinity, tmax = -Infinity, top = 0;
-    for (const s of o.series) {
-      s.t.forEach((t, i) => { if (t < tmin) tmin = t; if (t > tmax) tmax = t; top = Math.max(top, s.mean[i] + s.se[i]); });
-    }
-    if (!Number.isFinite(tmin)) { tmin = 0; tmax = 1; }
-    if (tmax <= tmin) tmax = tmin + 1;
-    const ymax = Math.min(1, Math.max(0.2, Math.ceil(top * 10 + 1e-9) / 10));
-    const y = yAxis(ctx, ymax, 'Proportion of looks');
-    const x = t => L + (t - tmin) / (tmax - tmin) * (W - L - R);
-    const step = niceStep(tmax - tmin, 6);
-    ctx.font = '28px ' + PLOT.serif; ctx.textAlign = 'center'; ctx.textBaseline = 'top';
-    for (let t = Math.ceil(tmin / step) * step; t <= tmax + 1e-9; t += step) {
-      ctx.strokeStyle = '#f3f3f3'; ctx.lineWidth = 2;
-      ctx.beginPath(); ctx.moveTo(x(t), T); ctx.lineTo(x(t), H - B); ctx.stroke();
-      ctx.strokeStyle = '#333333';
-      ctx.beginPath(); ctx.moveTo(x(t), H - B); ctx.lineTo(x(t), H - B + 10); ctx.stroke();
-      ctx.fillStyle = '#333333';
-      ctx.fillText(String(Math.round(t)), x(t), H - B + 18);
-    }
-    ctx.strokeStyle = '#333333'; ctx.lineWidth = 2;
-    ctx.beginPath(); ctx.moveTo(L, H - B); ctx.lineTo(W - R, H - B); ctx.stroke();
-    ctx.font = '30px ' + PLOT.serif; ctx.fillStyle = '#111111'; ctx.textBaseline = 'alphabetic';
-    ctx.fillText(o.xLabel, L + (W - L - R) / 2, H - 70);
-    for (const s of o.series) {
-      if (!s.t.length) continue;
-      ctx.fillStyle = s.color + '40';
-      ctx.beginPath();
-      s.t.forEach((t, i) => { const yy = y(Math.min(ymax, s.mean[i] + s.se[i])); i ? ctx.lineTo(x(t), yy) : ctx.moveTo(x(t), yy); });
-      for (let i = s.t.length - 1; i >= 0; i--) ctx.lineTo(x(s.t[i]), y(Math.max(0, s.mean[i] - s.se[i])));
-      ctx.closePath(); ctx.fill();
-      ctx.strokeStyle = s.color; ctx.lineWidth = 3.5; ctx.lineJoin = 'round';
-      ctx.beginPath();
-      s.t.forEach((t, i) => (i ? ctx.lineTo(x(t), y(s.mean[i])) : ctx.moveTo(x(t), y(s.mean[i]))));
-      ctx.stroke();
-    }
-    plotLegend(ctx, o.series, W - R + 50, T + (o.inset ? 300 : 30));
-    plotInset(ctx, o.inset, o.insetTitle);
-    plotCaption(ctx, o.caption);
-    return c;
-  }
-
-  // Bar plot of the mean proportion of looks over the whole stimulus, with one standard error
-  // and one dot per participant
-  function drawBarPlot(o) {
-    const { c, ctx } = plotCanvas();
-    const { L, R, T, B, W, H } = PLOT;
-    const bars = o.bars.map(b => {
-      const n = b.values.length, mean = n ? b.values.reduce((a, v) => a + v, 0) / n : 0;
-      const se = n > 1 ? Math.sqrt(b.values.reduce((a, v) => a + (v - mean) ** 2, 0) / (n - 1) / n) : 0;
-      return Object.assign({ mean, se }, b);
-    });
-    let top = 0;
-    for (const b of bars) top = Math.max(top, b.mean + b.se, ...b.values);
-    const ymax = Math.min(1, Math.max(0.2, Math.ceil(top * 10 + 1e-9) / 10));
-    const y = yAxis(ctx, ymax, 'Proportion of looks');
-    const plotW = W - L - R;
-    const slot = plotW / Math.max(1, bars.length), bw = Math.min(180, slot * 0.6);
-    ctx.strokeStyle = '#333333'; ctx.lineWidth = 2;
-    ctx.beginPath(); ctx.moveTo(L, H - B); ctx.lineTo(W - R, H - B); ctx.stroke();
-    bars.forEach((b, i) => {
-      const cx = L + slot * (i + 0.5);
-      ctx.fillStyle = b.color + 'B0';
-      ctx.fillRect(cx - bw / 2, y(b.mean), bw, y(0) - y(b.mean));
-      ctx.strokeStyle = b.color; ctx.lineWidth = 3;
-      ctx.strokeRect(cx - bw / 2, y(b.mean), bw, y(0) - y(b.mean));
-      ctx.fillStyle = 'rgba(40,40,40,0.55)';
-      b.values.forEach((v, j) => {
-        const jx = cx + ((j * 0.618034) % 1 - 0.5) * bw * 0.6;
-        ctx.beginPath(); ctx.arc(jx, y(v), 6, 0, 2 * Math.PI); ctx.fill();
-      });
-      if (b.se > 0) {
-        ctx.strokeStyle = '#222222'; ctx.lineWidth = 3;
-        const y1 = y(Math.min(ymax, b.mean + b.se)), y2 = y(Math.max(0, b.mean - b.se));
-        ctx.beginPath();
-        ctx.moveTo(cx, y1); ctx.lineTo(cx, y2);
-        ctx.moveTo(cx - 16, y1); ctx.lineTo(cx + 16, y1);
-        ctx.moveTo(cx - 16, y2); ctx.lineTo(cx + 16, y2);
-        ctx.stroke();
-      }
-      ctx.font = '28px ' + PLOT.serif; ctx.fillStyle = '#111111';
-      ctx.textAlign = 'center'; ctx.textBaseline = 'top';
-      let label = b.name;
-      while (ctx.measureText(label).width > slot - 12 && label.length > 4) label = label.slice(0, -2);
-      ctx.fillText(label === b.name ? label : label + '…', cx, H - B + 18);
-    });
-    ctx.font = '30px ' + PLOT.serif; ctx.fillStyle = '#111111'; ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
-    ctx.fillText(o.xLabel, L + plotW / 2, H - 70);
-    plotInset(ctx, o.inset, o.insetTitle);
-    plotCaption(ctx, o.caption);
-    return c;
-  }
-
-  // Small pictures for the plot corner: the stimulus with its areas, or one area cut out
-  function aoiThumb(bg, aw, ah, k, list) {
-    const { c, ctx } = baseCanvas(bg, aw, ah);
-    list.forEach((a, i) => {
-      ctx.strokeStyle = AOI_COLOURS[i % AOI_COLOURS.length];
-      ctx.lineWidth = Math.max(4, Math.max(aw, ah) / 60);
-      ctx.strokeRect(a.x * k, a.y * k, a.w * k, a.h * k);
-    });
-    return c;
-  }
-  function aoiCrop(bg, aw, ah, k, a) {
-    const full = baseCanvas(bg, aw, ah).c;
-    const c = document.createElement('canvas');
-    c.width = Math.max(1, Math.round(a.w * k)); c.height = Math.max(1, Math.round(a.h * k));
-    c.getContext('2d').drawImage(full, a.x * k, a.y * k, a.w * k, a.h * k, 0, 0, c.width, c.height);
-    return c;
-  }
-  function plotNote(n) {
-    return n > 1
-      ? 'N = ' + n + ' participants. Bands and error bars show one standard error of the mean.'
-      : 'One participant, so there are no error bands.';
-  }
-
   async function analyse(samples, media, opt, prefix, aoiMap = null, overrides = null, onStatus = null) {
-    const tcRows = [];
     const outs = [], notes = [], fixRows = [], aoiRows = [];
     let videoProblem = false;
     const useAoi = !!aoiMap && Array.from(aoiMap.values()).some(l => l.length);
@@ -1540,16 +1293,11 @@
         const im = renderAoiImage(bg, aw, ah, k, list, pool, type);
         outs.push({ name: prefix + stem(stim) + '_aois.png', blob: await toBlob(im) });
       }
-      if (list.length && opt.tcBinMs) {
-        const tc = timecourse(ss, list.map(a => a.name), type, opt.tcBinMs, q => aoiIndex(q, list, type));
-        for (const r of tc.rows) { r.stimulus = stim; tcRows.push(r); }
-      }
     }
     if (fixRows.length) {
       outs.push({ name: prefix + 'fixations.csv', blob: csvBlob(fixRows, useAoi ? FIX_COLS.concat('aoi') : FIX_COLS) });
     }
     if (aoiRows.length) outs.push({ name: prefix + 'aoi_summary.csv', blob: csvBlob(aoiRows, AOI_COLS) });
-    if (tcRows.length) outs.push({ name: prefix + 'aoi_timecourse.csv', blob: csvBlob(tcRows, TC_COLS) });
     return { outs, notes };
   }
 
@@ -1923,7 +1671,7 @@
     const num = id => numOrNull($(id).value);
     return {
       dispDeg: num('anDisp'), minDur: num('anMin'), maxGap: num('anGap'), mergeDeg: num('anMerge'),
-      sigmaDeg: num('anSigma'), scanVideo: $('anVideo').checked, trailSec: num('anTrail'), tcBinMs: num('anTc'),
+      sigmaDeg: num('anSigma'), scanVideo: $('anVideo').checked, trailSec: num('anTrail'),
       start: num('anStart'), end: num('anEnd'), frameTime: num('anFrame')
     };
   }
