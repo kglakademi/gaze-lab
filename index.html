@@ -302,7 +302,8 @@
   const DEFAULT_ANALYSIS = { dispDeg: 3, minDur: 200, maxGap: 150, mergeDeg: 3, sigmaDeg: 1.5, scanVideo: true, trailSec: null, tcBinMs: 100, start: null, end: null, frameTime: null };
   const MERGE_GAP_MS = 300;
   const SMOOTH_HALF_MS = 100;
-  const VERSION = '2026-11-12 e';
+  const OUTSIDE_MS = 60;
+  const VERSION = '2026-11-12 f';
   const TC_COLS = ['participant','stimulus','aoi','bin_start_ms','n_samples','n_in_aoi','proportion'];
   const CONDITION_COLOURS = ['#F8766D','#00BFC4','#7CAE00','#C77CFF','#E69F00','#56B4E9'];
   const SCAN_COLOUR = '#1565c0';
@@ -741,18 +742,18 @@
   }
 
   // Fixation detection for noisy webcam gaze, on time-sorted samples.
-  // 1. Each sample is replaced by the median of itself and its neighbours within 100 ms,
-  //    at most two on either side, which removes single jumps without blurring time
-  //    when the tracker delivers few samples per second.
+  // All steps are defined in time, so they behave the same at any sampling rate.
+  // 1. Each sample is replaced by the median of all samples within 100 ms of it,
+  //    which removes brief jumps.
   // 2. A fixation grows while samples stay within radiusPx of its running centre.
-  //    It ends when two samples in a row fall outside, or at a gap in the data.
+  //    It ends when gaze stays outside for at least 60 ms and two samples, or at a gap in the data.
   // 3. Fixations shorter than minDur are dropped.
   function detectFixations(s, radiusPx, minDur, maxGap) {
     const n = s.length, out = [];
     const med = (key, i) => {
       const v = [s[i][key]];
-      for (let k = i - 1; k >= Math.max(0, i - 2) && s[i].t - s[k].t <= SMOOTH_HALF_MS; k--) v.push(s[k][key]);
-      for (let k = i + 1; k <= Math.min(n - 1, i + 2) && s[k].t - s[i].t <= SMOOTH_HALF_MS; k++) v.push(s[k][key]);
+      for (let k = i - 1; k >= 0 && s[i].t - s[k].t <= SMOOTH_HALF_MS; k--) v.push(s[k][key]);
+      for (let k = i + 1; k < n && s[k].t - s[i].t <= SMOOTH_HALF_MS; k++) v.push(s[k][key]);
       v.sort((a, b) => a - b);
       return v[Math.floor(v.length / 2)];
     };
@@ -760,14 +761,17 @@
     for (let i = 0; i < n; i++) { sx[i] = med('x', i); sy[i] = med('y', i); }
     let i = 0;
     while (i < n) {
-      let cx = sx[i], cy = sy[i], m = 1, last = i, outside = 0;
+      let cx = sx[i], cy = sy[i], m = 1, last = i, outside = 0, outSince = 0;
       for (let j = i + 1; j < n; j++) {
         if (s[j].t - s[j - 1].t > maxGap) break;
         if (Math.hypot(sx[j] - cx, sy[j] - cy) <= radiusPx) {
           cx = (cx * m + sx[j]) / (m + 1);
           cy = (cy * m + sy[j]) / (m + 1);
           m++; last = j; outside = 0;
-        } else if (++outside >= 2) break;
+        } else {
+          if (outside === 0) outSince = s[j].t;
+          if (++outside >= 2 && s[j].t - outSince >= OUTSIDE_MS) break;
+        }
       }
       const dur = s[last].t - s[i].t;
       if (dur >= minDur) {
