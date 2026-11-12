@@ -194,15 +194,19 @@
 <section id="done" hidden>
   <h1 id="doneTitle">Finished</h1>
   <p id="summary"></p>
+  <div class="row">
+    <button id="rerun" type="button">Run again with the same calibration</button>
+    <button id="newSession" class="secondary" type="button">Start a new session</button>
+  </div>
+  <p class="muted">Run again keeps the camera and the calibration, so the same person can repeat the images or view new ones after a short accuracy check. A new person must start a new session.</p>
+  <h2>Files from this run</h2>
   <ul id="links" class="links"></ul>
   <div class="row"><button id="dlAllDone" class="secondary small" type="button">Download all files from this run</button></div>
   <div id="prevRuns"></div>
   <p id="doneStatus" class="muted" role="status"></p>
-  <p class="muted">Download every file before closing this page. The files exist only in this browser tab. Run again keeps the camera and the calibration, so the same person can repeat the images or view new ones after a short accuracy check. A new person must start a new session.</p>
+  <p class="muted">Download every file before closing this page. The files exist only in this browser tab.</p>
   <div class="row">
-    <button id="rerun" type="button">Run again with the same calibration</button>
     <button id="toAnalyse" class="secondary" type="button">Areas of interest and backgrounds</button>
-    <button id="newSession" class="secondary" type="button">Start a new session</button>
   </div>
 </section>
 
@@ -311,7 +315,7 @@
   const MERGE_GAP_MS = 300;
   const SMOOTH_HALF_MS = 100;
   const OUTSIDE_MS = 60;
-  const VERSION = '2026-11-12 n';
+  const VERSION = '2026-11-12 o';
 
   const SCAN_COLOUR = '#1565c0';
   const SCAN_FILL = 'rgba(21, 101, 192, 0.85)';
