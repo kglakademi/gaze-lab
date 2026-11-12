@@ -122,6 +122,7 @@
       <small>Validation counts as passed when the mean error is at or below this value.</small>
       <input id="limit" type="number" min="0.1" step="any" value="4" required>
     </label>
+    <label class="check"><input id="postCheck" type="checkbox"> Check the accuracy again after viewing. This adds about ten seconds and shows whether the tracking drifted during the session.</label>
     <label>Seconds per image
       <small>Videos play to the end.</small>
       <input id="imgdur" type="number" min="1" step="any" value="5" required>
@@ -153,12 +154,12 @@
 
 <section id="intro" hidden>
   <h1>What happens next</h1>
-  <p>The session has four parts and takes a few minutes. The screen switches to full screen when you begin.</p>
+  <p>The session has <span id="nParts">three</span> parts and takes a few minutes. The screen switches to full screen when you begin.</p>
   <ol class="steps">
     <li><strong>First you calibrate the tracker.</strong><span class="cal-word">Green</span> circles appear one at a time in different places on the screen. Look at the centre of each green circle and <strong>click</strong> it five times while you keep looking at it. The tracker learns where your eyes point from the moments when you click.</li>
     <li><strong>Second you check the accuracy.</strong>The circles are now <span class="probe-word">orange</span>, and five of them appear one at a time. Only look at each orange circle until it disappears, and <strong>do not click</strong>. You then see how accurate the tracking is. If it is not accurate enough, you can calibrate again.</li>
     <li><strong>Third you look at the images and videos.</strong>A cross appears in the middle of the screen before each one. Look at the cross until the image or video appears, then look at it freely. Images stay for a fixed time, and videos play to the end. Press S to skip one.</li>
-    <li><strong>Finally you check the accuracy once more.</strong>The <span class="probe-word">orange</span> circles appear again. Only look at them, and <strong>do not click</strong>. This shows whether the tracking became less accurate while you were looking.</li>
+    <li id="postStep" hidden><strong>Finally you check the accuracy once more.</strong>The <span class="probe-word">orange</span> circles appear again. Only look at them, and <strong>do not click</strong>. This shows whether the tracking became less accurate while you were looking.</li>
   </ol>
   <p><strong>During the whole session</strong></p>
   <ul class="steps">
@@ -315,7 +316,7 @@
   const MERGE_GAP_MS = 300;
   const SMOOTH_HALF_MS = 100;
   const OUTSIDE_MS = 60;
-  const VERSION = '2026-11-12 o';
+  const VERSION = '2026-11-12 p';
 
   const SCAN_COLOUR = '#1565c0';
   const SCAN_FILL = 'rgba(21, 101, 192, 0.85)';
@@ -721,7 +722,9 @@
       try { await runStimulus(files[i], i); }
       catch (e) { errors.push(files[i].name + ' ' + (e && e.message ? e.message : 'failed')); }
     }
-    postVal = await runValidation('Final check. Look at each orange circle without moving your head. Do not click.');
+    postVal = $('postCheck').checked
+      ? await runValidation('Final check. Look at each orange circle without moving your head. Do not click.')
+      : null;
     await finish(files);
   }
 
@@ -748,7 +751,9 @@
     for (const o of outputs) addLink('links', o.name, o.blob);
 
     const fmt = v => v && v.mean_offset_deg !== null ? v.mean_offset_deg.toFixed(2) + ' degrees' : 'not available';
-    let text = 'Mean validation offset was ' + fmt(preVal) + ' before viewing and ' + fmt(postVal) + ' after viewing.';
+    let text = postVal
+      ? 'Mean validation offset was ' + fmt(preVal) + ' before viewing and ' + fmt(postVal) + ' after viewing.'
+      : 'Mean validation offset was ' + fmt(preVal) + ' before viewing.';
     text += ' ' + rateText(rows.map(normalise));
     if (sessionAois.length) text += ' The file aois.csv holds the areas of interest. Import it on the start page for the next participant.';
     if (errors.length) text += ' Some stimuli could not be shown. ' + errors.join('. ') + '.';
@@ -1778,7 +1783,12 @@
   $('version').textContent = 'Version ' + VERSION;
   $('startCam').onclick = () => (runNo > 1 ? startRerun() : startCamera());
   $('rerun').onclick = prepareRerun;
-  $('toIntro').onclick = () => show('intro');
+  $('toIntro').onclick = () => {
+    const post = $('postCheck').checked;
+    $('postStep').hidden = !post;
+    $('nParts').textContent = post ? 'four' : 'three';
+    show('intro');
+  };
   $('beginCal').onclick = calibrate;
   $('recal').onclick = calibrate;
   $('startView').onclick = startViewing;
