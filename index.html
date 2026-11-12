@@ -131,7 +131,7 @@
     </label>
     <div id="setupAoi" hidden>
       <h2>Areas of interest, optional</h2>
-      <p class="muted">Draw areas on your images now, or import an AOI table that was exported earlier for the same images. The areas are then counted automatically at the end of the session. You can also do this after the session.</p>
+      <p class="muted">Draw areas on your images now, or click Import AOI table to load an <code>aois.csv</code> from an earlier round with the same images. The areas are then counted automatically at the end of the session, and <code>aois.csv</code> is included in the downloads so you can reuse it next time. You can also define areas after the session.</p>
       <div id="setupAoiSlot"></div>
     </div>
     <div class="row"><button id="startCam" type="button">Start camera</button></div>
@@ -213,7 +213,7 @@
         <input id="anCsv" type="file" accept=".csv,text/csv" multiple>
       </label>
       <label>Images and videos
-        <small>Without them the plots are drawn on a grey background.</small>
+        <small>Without them the plots are drawn on a grey background. They are not needed for the gaze table export.</small>
         <input id="anMedia" type="file" accept="image/*,video/*" multiple>
       </label>
       <label>Session files, optional
@@ -265,6 +265,10 @@
       <label>Video window end in s<small>Leave empty for the whole video.</small><input id="anEnd" type="number" min="0" step="any"></label>
       <label>Video background frame in s<small>Leave empty for the middle of the window.</small><input id="anFrame" type="number" min="0" step="any"></label>
     </div>
+    <h2>Gaze table with areas, for R</h2>
+    <p>This writes all loaded gaze tables into one table with three extra columns. The column <code>aoi</code> gives the area each gaze sample falls in. The column <code>fixation</code> gives the number of the fixation the sample belongs to, matching the fixation table, and is empty for samples outside fixations. The column <code>fixation_aoi</code> gives the area of that fixation. Images are not needed. Import an AOI table or draw the areas above, and the fixation settings below apply.</p>
+    <div class="row"><button id="anExport" type="button">Export gaze table with areas</button></div>
+
     <label class="check"><input id="anVideo" type="checkbox" checked> Make scanpath videos. Each one takes as long to make as the stimulus lasted.</label>
     <div class="row">
       <button id="anBack" class="secondary" type="button">Back</button>
@@ -303,7 +307,7 @@
   const MERGE_GAP_MS = 300;
   const SMOOTH_HALF_MS = 100;
   const OUTSIDE_MS = 60;
-  const VERSION = '2026-11-12 f';
+  const VERSION = '2026-11-12 j';
   const TC_COLS = ['participant','stimulus','aoi','bin_start_ms','n_samples','n_in_aoi','proportion'];
   const CONDITION_COLOURS = ['#F8766D','#00BFC4','#7CAE00','#C77CFF','#E69F00','#56B4E9'];
   const SCAN_COLOUR = '#1565c0';
@@ -312,7 +316,8 @@
   const HEAT_GRID_WIDTH = 400;
 
   const COLS = ['participant','stimulus_index','stimulus','stimulus_type','t_ms','media_time_s',
-                'x_screen','y_screen','x_stim','y_stim','on_stimulus','stim_w','stim_h','stim_px_per_deg'];
+                'x_screen','y_screen','x_stim','y_stim','on_stimulus','stim_w','stim_h','stim_px_per_deg','aoi'];
+  const GAZE_COLS = COLS.concat(['fixation', 'fixation_aoi']);
   const FIX_COLS = ['participant','stimulus','fixation','start_ms','end_ms','duration_ms','media_start_s',
                     'x_stim','y_stim','n_samples'];
   const AOI_COLS = ['participant','stimulus','aoi','fixation_count','dwell_ms','dwell_share',
@@ -325,7 +330,7 @@
   const rows = [], outputs = [], errors = [];
   let sessionFiles = [];
   // Analysis page state
-  const aState = { samples: [], media: new Map(), prefix: 'pooled_' };
+  const aState = { samples: [], raw: [], media: new Map(), prefix: 'pooled_' };
   const aois = new Map();   // stimulus file name -> [{ name, x, y, w, h, from, to }] in stimulus pixels
   const bgOverride = new Map();   // stimulus file name -> replacement background image file
   const ed = { mode: 'analysis', stimuli: new Map(), media: new Map(), stim: null, bg: null, drag: null, k: 1 };
@@ -569,6 +574,9 @@
       const g = geometry();
       const stimPxPerDeg = g.pxPerDeg / scale;
       const trail = [];
+      // Areas drawn or imported before the session are written into the gaze table per sample
+      const stimAois = aois.get(file.name) || [];
+      const stimType = isVideo ? 'video' : 'image';
       const t0 = performance.now();
       current = {
         onSample(x, y) {
@@ -582,7 +590,8 @@
             t_ms: Math.round(t), media_time_s: +mt.toFixed(3),
             x_screen: Math.round(x), y_screen: Math.round(y),
             x_stim: +xs.toFixed(1), y_stim: +ys.toFixed(1), on_stimulus: on,
-            stim_w: nw, stim_h: nh, stim_px_per_deg: +stimPxPerDeg.toFixed(3)
+            stim_w: nw, stim_h: nh, stim_px_per_deg: +stimPxPerDeg.toFixed(3),
+            aoi: !stimAois.length ? '' : (i => (i >= 0 ? stimAois[i].name : 'none'))(aoiIndex({ x: xs, y: ys, mt }, stimAois, stimType))
           });
           trail.push({ t, x: xs * cs, y: ys * cs });
         }
@@ -677,9 +686,11 @@
       validation_before: preVal, validation_after: postVal, errors,
       median_sample_interval_ms: sampleInterval(rows.map(normalise)), app_version: VERSION
     };
-    addLink('links', pid + '_gaze.csv', csvBlob(rows, COLS));
+    addLink('links', pid + '_gaze.csv', csvBlob(annotateGaze(rows, aois, DEFAULT_ANALYSIS), GAZE_COLS));
     addLink('links', pid + '_session.json', new Blob([JSON.stringify(meta, null, 2)], { type: 'application/json' }));
     for (const o of outputs) addLink('links', o.name, o.blob);
+    const sessionAois = aoiTableRows(stimulusSizes(rows.map(normalise)));
+    if (sessionAois.length) addLink('links', 'aois.csv', csvBlob(sessionAois, AOI_FILE_COLS));
 
     const fmt = v => v && v.mean_offset_deg !== null ? v.mean_offset_deg.toFixed(2) + ' degrees' : 'not available';
     let text = 'Mean validation offset was ' + fmt(preVal) + ' before viewing and ' + fmt(postVal) + ' after viewing.';
@@ -706,7 +717,8 @@
     return {
       participant: String(r.participant), stimulus: String(r.stimulus), type: String(r.stimulus_type),
       t: +r.t_ms, mt: +r.media_time_s, x: +r.x_stim, y: +r.y_stim, on: +r.on_stimulus === 1,
-      w: +r.stim_w, h: +r.stim_h, ppd: +r.stim_px_per_deg
+      w: +r.stim_w, h: +r.stim_h, ppd: +r.stim_px_per_deg,
+      aoi: r.aoi === undefined || r.aoi === null ? '' : String(r.aoi)
     };
   }
 
@@ -778,6 +790,49 @@
         out.push({ x: cx, y: cy, start: s[i].t, end: s[last].t, dur, mt: s[i].mt, n: m });
         i = last + 1;
       } else i++;
+    }
+    return out;
+  }
+
+  // The fixations of one participant on one stimulus, from time-sorted on-stimulus samples.
+  // Used by the analysis and by the gaze table export, so both number fixations the same way.
+  function fixationsFor(ps, opt) {
+    if (!ps.length) return [];
+    const dts = [];
+    for (let q = 1; q < ps.length; q++) dts.push(ps[q].t - ps[q - 1].t);
+    const gap = Math.max(opt.maxGap, dts.length ? 3 * median(dts) : 0);
+    return mergeFixations(detectFixations(ps, opt.dispDeg * ps[0].ppd, opt.minDur, gap),
+                          (opt.mergeDeg || 0) * ps[0].ppd, Math.max(MERGE_GAP_MS, gap));
+  }
+
+  // Adds the columns aoi, fixation and fixation_aoi to raw gaze rows.
+  // aoi is recomputed where areas exist for the stimulus, otherwise an existing value is kept.
+  function annotateGaze(raw, aoiMap, opt) {
+    const out = raw.map(r => Object.assign({}, r, { fixation: '', fixation_aoi: '' }));
+    const groups = groupBy(out.map((r, i) => ({ r, s: normalise(r), i })), e => e.s.participant + '\u0000' + e.s.stimulus);
+    for (const g of groups.values()) {
+      const type = g[0].s.type, list = (aoiMap && aoiMap.get(g[0].s.stimulus)) || [];
+      g.sort((a, b) => a.s.t - b.s.t);
+      if (list.length) {
+        for (const e of g) {
+          const i = e.s.on ? aoiIndex(e.s, list, type) : -1;
+          e.r.aoi = i >= 0 ? list[i].name : 'none';
+        }
+      } else {
+        for (const e of g) if (e.r.aoi === undefined || e.r.aoi === null) e.r.aoi = '';
+      }
+      const on = g.filter(e => e.s.on && Number.isFinite(e.s.x) && Number.isFinite(e.s.y));
+      const fx = fixationsFor(on.map(e => e.s), opt);
+      let j = 0;
+      fx.forEach((f, k) => {
+        const ai = list.length ? aoiIndex(f, list, type) : -1;
+        const label = list.length ? (ai >= 0 ? list[ai].name : 'none') : '';
+        while (j < g.length && g[j].s.t < f.start) j++;
+        for (let q = j; q < g.length && g[q].s.t <= f.end; q++) {
+          g[q].r.fixation = k + 1;
+          g[q].r.fixation_aoi = label;
+        }
+      });
     }
     return out;
   }
@@ -1150,16 +1205,16 @@
 
   // For every participant and time bin, the proportion of gaze samples on the stimulus that fall
   // in each area. Then the mean and standard error across participants per bin.
-  function timecourse(ss, list, type, binMs) {
+  function timecourse(ss, names, type, binMs, indexOf) {
     const perP = new Map();
     for (const s of ss) {
       const b = Math.floor((type === 'video' ? s.mt * 1000 : s.t) / binMs);
       if (!perP.has(s.participant)) perP.set(s.participant, new Map());
       const m = perP.get(s.participant);
       let e = m.get(b);
-      if (!e) { e = { n: 0, h: new Array(list.length).fill(0) }; m.set(b, e); }
+      if (!e) { e = { n: 0, h: new Array(names.length).fill(0) }; m.set(b, e); }
       e.n++;
-      const i = aoiIndex(s, list, type);
+      const i = indexOf(s);
       if (i >= 0) e.h[i]++;
     }
     const P = perP.size;
@@ -1172,7 +1227,7 @@
       const se = n > 1 ? Math.sqrt(v.reduce((a, x) => a + (x - mean) ** 2, 0) / (n - 1) / n) : 0;
       return { mean, se };
     };
-    const series = list.map((a, i) => {
+    const series = names.map((a, i) => {
       const t = [], mean = [], se = [];
       for (const b of bins) {
         const v = [];
@@ -1182,7 +1237,7 @@
       }
       return { t, mean, se };
     });
-    const overall = list.map((a, i) => {
+    const overall = names.map((a, i) => {
       const v = [];
       for (const m of perP.values()) {
         let n = 0, h = 0;
@@ -1195,8 +1250,8 @@
     for (const [p, m] of perP) {
       for (const b of Array.from(m.keys()).sort((x, y) => x - y)) {
         const e = m.get(b);
-        list.forEach((a, i) => rows.push({
-          participant: p, aoi: a.name, bin_start_ms: b * binMs, n_samples: e.n, n_in_aoi: e.h[i],
+        names.forEach((a, i) => rows.push({
+          participant: p, aoi: a, bin_start_ms: b * binMs, n_samples: e.n, n_in_aoi: e.h[i],
           proportion: +(e.h[i] / e.n).toFixed(4)
         }));
       }
@@ -1428,12 +1483,7 @@
       const pool = list.map(() => ({ hit: 0, tot: 0 }));
       for (const [p, ps] of groupBy(ss, s => s.participant)) {
         ps.sort((a, b) => a.t - b.t);
-        // A gap counts as missing data only when it is clearly longer than this recording's sampling interval
-        const dts = [];
-        for (let q = 1; q < ps.length; q++) dts.push(ps[q].t - ps[q - 1].t);
-        const gap = Math.max(opt.maxGap, dts.length ? 3 * median(dts) : 0);
-        const fx = mergeFixations(detectFixations(ps, opt.dispDeg * ps[0].ppd, opt.minDur, gap),
-                                  (opt.mergeDeg || 0) * ps[0].ppd, Math.max(MERGE_GAP_MS, gap));
+        const fx = fixationsFor(ps, opt);
         for (const f of fx) f.aoiIdx = aoiIndex(f, list, type);
         fx.forEach((f, i) => fixRows.push({
           participant: p, stimulus: stim, fixation: i + 1,
@@ -1488,7 +1538,7 @@
         outs.push({ name: prefix + stem(stim) + '_aois.png', blob: await toBlob(im) });
       }
       if (list.length && opt.tcBinMs) {
-        const tc = timecourse(ss, list, type, opt.tcBinMs);
+        const tc = timecourse(ss, list.map(a => a.name), type, opt.tcBinMs, q => aoiIndex(q, list, type));
         for (const r of tc.rows) { r.stimulus = stim; tcRows.push(r); }
         const xLabel = type === 'video' ? 'Time in the video (ms)' : 'Time from the onset of the image (ms)';
         const thumb = aoiThumb(bg, aw, ah, k, list);
@@ -1601,8 +1651,9 @@
     return g.pxPerDeg / Math.min(window.screen.width / st.W, window.screen.height / st.H);
   }
 
-  function setAnalysisData(samples, media, accuracy) {
+  function setAnalysisData(samples, media, accuracy, raw) {
     aState.samples = samples;
+    aState.raw = raw || [];
     aState.media = media;
     const stimuli = new Map();
     for (const [name, ss] of groupBy(samples, s => s.stimulus)) {
@@ -1617,10 +1668,11 @@
   async function loadFromInputs() {
     $('anStatus').textContent = '';
     try {
-      let samples = [];
+      let samples = [], raw = [];
       for (const f of $('anCsv').files) {
         const parsed = parseCSV(await f.text());
         if (!parsed.length || !('x_stim' in parsed[0])) throw new Error(f.name + ' is not a gaze table from this app.');
+        raw = raw.concat(parsed);
         samples = samples.concat(parsed.map(normalise));
       }
       const offsets = [];
@@ -1632,7 +1684,7 @@
         } catch (e) { /* not a session file */ }
       }
       const media = new Map(Array.from($('anMedia').files).map(f => [f.name, f]));
-      setAnalysisData(samples, media, offsets.length ? offsets.reduce((a, b) => a + b, 0) / offsets.length : NaN);
+      setAnalysisData(samples, media, offsets.length ? offsets.reduce((a, b) => a + b, 0) / offsets.length : NaN, raw);
       if (samples.length) {
         const n = new Set(samples.map(s => s.participant)).size;
         $('anStatus').textContent = samples.length + ' samples from ' + n + ' participant(s) loaded.';
@@ -1803,10 +1855,11 @@
   }
 
   // AOI table. One row per area, coordinates in pixels of the original image, origin top left.
-  function exportAois() {
+  // sizes maps a stimulus file name to its width and height in pixels, where known.
+  function aoiTableRows(sizes) {
     const out = [];
     for (const [name, list] of aois) {
-      const st = ed.stimuli.get(name);
+      const st = sizes.get(name);
       for (const a of list) {
         out.push({
           stimulus: name, aoi: a.name, x: a.x, y: a.y, width: a.w, height: a.h,
@@ -1815,6 +1868,16 @@
         });
       }
     }
+    return out;
+  }
+  function stimulusSizes(samples) {
+    const m = new Map();
+    for (const s of samples) if (!m.has(s.stimulus)) m.set(s.stimulus, { W: s.w, H: s.h });
+    return m;
+  }
+
+  function exportAois() {
+    const out = aoiTableRows(ed.stimuli);
     if (!out.length) { $('aoiStatus').textContent = 'There are no areas to export yet.'; return; }
     const a = document.createElement('a');
     a.href = URL.createObjectURL(csvBlob(out, AOI_FILE_COLS));
@@ -1873,7 +1936,7 @@
       anReturn = 'done';
       aState.prefix = pid + '_';
       const acc = preVal ? preVal.mean_offset_deg : null;
-      setAnalysisData(rows.map(normalise), new Map(sessionFiles.map(f => [f.name, f])), acc === null ? NaN : acc);
+      setAnalysisData(rows.map(normalise), new Map(sessionFiles.map(f => [f.name, f])), acc === null ? NaN : acc, rows);
     } else {
       anReturn = 'setup';
       aState.prefix = 'pooled_';
@@ -1882,15 +1945,34 @@
     show('analyse');
   }
 
-  async function runAnalyse() {
-    if (!$('anForm').reportValidity()) return;
-    if (!aState.samples.length) { $('anStatus').textContent = 'Load at least one gaze table first.'; return; }
+  function readOptions() {
     const num = id => numOrNull($(id).value);
-    const opt = {
+    return {
       dispDeg: num('anDisp'), minDur: num('anMin'), maxGap: num('anGap'), mergeDeg: num('anMerge'),
       sigmaDeg: num('anSigma'), scanVideo: $('anVideo').checked, trailSec: num('anTrail'), tcBinMs: num('anTc'),
       start: num('anStart'), end: num('anEnd'), frameTime: num('anFrame')
     };
+  }
+
+  function exportGazeTables() {
+    if (!$('anForm').reportValidity()) return;
+    if (!aState.raw.length) { $('anStatus').textContent = 'Load at least one gaze table first.'; return; }
+    const out = annotateGaze(aState.raw, aois, readOptions());
+    const nAoi = Array.from(aois.values()).reduce((a, l) => a + l.length, 0);
+    const name = aState.prefix + 'gaze_aoi.csv';
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(csvBlob(out, GAZE_COLS));
+    a.download = name;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+    $('anStatus').textContent = name + ' was exported with ' + out.length + ' rows' +
+      (nAoi ? '.' : '. No areas of interest are defined, so the area columns are empty.');
+  }
+
+  async function runAnalyse() {
+    if (!$('anForm').reportValidity()) return;
+    if (!aState.samples.length) { $('anStatus').textContent = 'Load at least one gaze table first.'; return; }
+    const opt = readOptions();
     $('anRun').disabled = true;
     $('anLinks').textContent = '';
     $('dlAllAn').hidden = true;
@@ -1899,7 +1981,9 @@
       const res = await analyse(aState.samples, aState.media, opt, aState.prefix, aois, bgOverride,
                                 msg => { $('anStatus').textContent = msg; });
       for (const o of res.outs) addLink('anLinks', o.name, o.blob);
-      $('dlAllAn').hidden = !res.outs.length;
+      const anAois = aoiTableRows(stimulusSizes(aState.samples));
+      if (anAois.length) addLink('anLinks', 'aois.csv', csvBlob(anAois, AOI_FILE_COLS));
+      $('dlAllAn').hidden = !res.outs.length && !anAois.length;
       const n = new Set(aState.samples.map(s => s.participant)).size;
       $('anStatus').textContent = 'Done. ' + aState.samples.length + ' samples from ' + n + ' participant(s). ' + rateText(aState.samples) + ' ' + res.notes.join(' ');
     } catch (e) {
@@ -1926,6 +2010,7 @@
   $('files').onchange = refreshSetupEditor;
   for (const id of ['dist', 'width', 'limit']) $(id).addEventListener('input', () => { if (ed.mode === 'setup') renderAoiList(); });
   $('anRun').onclick = runAnalyse;
+  $('anExport').onclick = exportGazeTables;
   for (const id of ['anCsv', 'anMedia', 'anSession']) $(id).onchange = loadFromInputs;
   $('aoiStim').onchange = () => selectStimulus($('aoiStim').value);
   $('aoiShowFrame').onclick = () => { if (ed.stim) loadEditorBackground(parseFloat($('aoiFrame').value)); };
