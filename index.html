@@ -8,11 +8,13 @@
   :root {
     --bg: #e8ecef; --ink: #16202a; --muted: #55616d; --line: #c2ccd4;
     --accent: #0b6e6e; --on-accent: #ffffff; --bad: #b3261e; --good: #1b7a3d;
+    --cal: #1b7a3d; --probe: #d9600a;
   }
   @media (prefers-color-scheme: dark) {
     :root {
       --bg: #10161c; --ink: #e6ebef; --muted: #93a1ae; --line: #2a3541;
       --accent: #3cc4c4; --on-accent: #08161a; --bad: #ff8a80; --good: #6fd08c;
+      --cal: #6fd08c; --probe: #ffa040;
     }
   }
   [hidden] { display: none !important; }
@@ -75,13 +77,15 @@
   #hud { position: fixed; top: 12px; left: 0; right: 0; text-align: center; color: var(--muted); margin: 0 auto; }
   .dot {
     position: fixed; width: 44px; height: 44px; margin: -22px 0 0 -22px; padding: 0;
-    border-radius: 50%; border: 2px solid var(--accent); background: transparent; cursor: pointer;
+    border-radius: 50%; border: 2px solid var(--cal); background: transparent; cursor: pointer;
   }
   .dot::after {
     content: ""; position: absolute; left: 50%; top: 50%; width: 6px; height: 6px;
     margin: -3px 0 0 -3px; border-radius: 50%; background: var(--ink);
   }
-  .probe { cursor: default; }
+  .probe { cursor: default; border-color: var(--probe); background: var(--probe); }
+  .cal-word { color: var(--cal); font-weight: 700; }
+  .probe-word { color: var(--probe); font-weight: 700; }
 
   #show { position: fixed; inset: 0; z-index: 1000; background: #000; cursor: none; }
   #cross { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); color: #fff; font-size: 48px; line-height: 1; }
@@ -148,10 +152,10 @@
   <h1>What happens next</h1>
   <p>The session has four parts and takes a few minutes. The screen switches to full screen when you begin.</p>
   <ol class="steps">
-    <li><strong>First you calibrate the tracker.</strong>Circles appear one at a time in different places on the screen. Look at the centre of each circle and click it five times while you keep looking at it. The tracker learns where your eyes point from the moments when you click.</li>
-    <li><strong>Second you check the accuracy.</strong>Five new circles appear one at a time. Only look at each circle until it disappears, and do not click. You then see how accurate the tracking is. If it is not accurate enough, you can calibrate again.</li>
+    <li><strong>First you calibrate the tracker.</strong><span class="cal-word">Green</span> circles appear one at a time in different places on the screen. Look at the centre of each green circle and <strong>click</strong> it five times while you keep looking at it. The tracker learns where your eyes point from the moments when you click.</li>
+    <li><strong>Second you check the accuracy.</strong>The circles are now <span class="probe-word">orange</span>, and five of them appear one at a time. Only look at each orange circle until it disappears, and <strong>do not click</strong>. You then see how accurate the tracking is. If it is not accurate enough, you can calibrate again.</li>
     <li><strong>Third you look at the images and videos.</strong>A cross appears in the middle of the screen before each one. Look at the cross until the image or video appears, then look at it freely. Images stay for a fixed time, and videos play to the end. Press S to skip one.</li>
-    <li><strong>Finally you check the accuracy once more.</strong>The circles from the second part appear again. This shows whether the tracking became less accurate while you were looking.</li>
+    <li><strong>Finally you check the accuracy once more.</strong>The <span class="probe-word">orange</span> circles appear again. Only look at them, and <strong>do not click</strong>. This shows whether the tracking became less accurate while you were looking.</li>
   </ol>
   <p><strong>During the whole session</strong></p>
   <ul class="steps">
@@ -407,7 +411,7 @@
       let k = 0;
       b.onclick = () => {
         k++;
-        b.style.boxShadow = 'inset 0 0 0 ' + (k * 22 / n) + 'px var(--accent)';
+        b.style.boxShadow = 'inset 0 0 0 ' + (k * 22 / n) + 'px var(--cal)';
         if (k >= n) {
           b.onclick = null;
           setTimeout(() => { b.hidden = true; resolve(); }, 200);
@@ -495,9 +499,9 @@
     webgazer.showVideoPreview(false);
     show('stage');
     $('probe').hidden = true;
-    $('hud').textContent = 'Look at each circle and click it ' + CLICKS_PER_POINT + ' times. Keep your head still.';
+    $('hud').textContent = 'Look at each green circle and click it ' + CLICKS_PER_POINT + ' times. Keep your head still.';
     for (const [fx, fy] of shuffle(CAL)) await clickTarget(fx, fy, CLICKS_PER_POINT);
-    preVal = await runValidation('Look at each circle without moving your head. Do not click.');
+    preVal = await runValidation('Look at each orange circle without moving your head. Do not click.');
     renderResult(preVal);
     show('result');
   }
@@ -646,7 +650,7 @@
       try { await runStimulus(files[i], i); }
       catch (e) { errors.push(files[i].name + ' ' + (e && e.message ? e.message : 'failed')); }
     }
-    postVal = await runValidation('Final check. Look at each circle without moving your head. Do not click.');
+    postVal = await runValidation('Final check. Look at each orange circle without moving your head. Do not click.');
     await finish(files);
   }
 
@@ -921,7 +925,11 @@
     ctx.font = '600 ' + Math.max(10, Math.round(unit * 1.1)) + 'px system-ui, sans-serif';
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
     pts.forEach((p, i) => {
-      const r = unit * (0.9 + 2.2 * Math.sqrt(Math.min(1, p.d / maxD))) * grow;
+      if (o.pointAlpha) {
+        if (o.pointAlpha[i] <= 0) return;
+        ctx.globalAlpha = o.pointAlpha[i];
+      }
+      const r = unit * (0.9 + 2.2 * Math.sqrt(Math.min(1, p.d / maxD))) * (o.pointGrow ? o.pointGrow[i] : grow);
       ctx.fillStyle = SCAN_FILL;
       ctx.strokeStyle = '#ffffff';
       ctx.lineWidth = Math.max(1, unit * 0.15);
@@ -949,8 +957,9 @@
     return c;
   }
 
-  // Animated scanpath. Time is cut into bins, each bin shows the fixations that start in it,
-  // and consecutive bins cross-fade. The video is recorded in real time.
+  // Animated scanpath. Time is cut into bins, and each bin shows the fixations that are ongoing
+  // in it. A fixation that continues into the next bin stays in place, fixations that ended
+  // fade out and new ones fade in. The video is recorded in real time.
   async function recordScanpathVideo(staticBg, videoFile, type, W, H, fx, lo, hi, binMs) {
     const mime = pickMime();
     const cs = Math.min(1, MAX_VIDEO_WIDTH / W);
@@ -964,9 +973,11 @@
     const tOf = f => (type === 'video' ? f.mt : f.start / 1000);
     const bins = new Map();
     fx.forEach((f, i) => {
-      const b = Math.floor(tOf(f) / bw);
-      if (!bins.has(b)) bins.set(b, []);
-      bins.get(b).push(i);
+      const t1 = tOf(f), t2 = t1 + f.dur / 1000;
+      for (let b = Math.floor(t1 / bw); b <= Math.floor(t2 / bw); b++) {
+        if (!bins.has(b)) bins.set(b, []);
+        bins.get(b).push(i);
+      }
     });
     const maxDur = Math.max(...fx.map(f => f.dur), 1);
     const fade = Math.min(0.18, bw * 0.4);
@@ -996,13 +1007,19 @@
       const b = Math.floor(T / bw);
       const aIn = Math.min(1, Math.max(0, (T - b * bw) / fade));
       const cur = bins.get(b) || [], prev = bins.get(b - 1) || [];
+      const inPrev = new Set(prev), inCur = new Set(cur);
       if (aIn < 1 && prev.length) {
-        drawScan(ctx, prev.map(i => fx[i]), cs, unit, { numbers: prev.map(i => i + 1), maxDur, alpha: 1 - aIn });
+        drawScan(ctx, prev.map(i => fx[i]), cs, unit, {
+          numbers: prev.map(i => i + 1), maxDur, alpha: 1 - aIn,
+          pointAlpha: prev.map(i => (inCur.has(i) ? 0 : 1 - aIn))
+        });
       }
       if (cur.length) {
         drawScan(ctx, cur.map(i => fx[i]), cs, unit, {
-          numbers: cur.map(i => i + 1), maxDur, alpha: aIn, grow: 0.6 + 0.4 * ease(aIn),
-          linkFrom: prev.length ? fx[prev[prev.length - 1]] : null
+          numbers: cur.map(i => i + 1), maxDur, alpha: aIn,
+          pointAlpha: cur.map(i => (inPrev.has(i) ? 1 : aIn)),
+          pointGrow: cur.map(i => (inPrev.has(i) ? 1 : 0.6 + 0.4 * ease(aIn))),
+          linkFrom: prev.length && !inPrev.has(cur[0]) ? fx[prev[prev.length - 1]] : null
         });
       }
       drawLabel(ctx, unit, (b * bw).toFixed(1) + ' to ' + ((b + 1) * bw).toFixed(1) + ' s');
